@@ -13,10 +13,13 @@ import {
   Platform,
   UIManager,
   Easing,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -25,6 +28,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 export default function HomeScreen() {
   const { colors, isDarkMode, toggleTheme } = useTheme();
+  const { user, isAuthenticating, signInWithGoogle, signOut } = useAuth();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState('day'); // 'day', 'week', 'month'
   const [refreshing, setRefreshing] = useState(false);
@@ -79,6 +83,21 @@ export default function HomeScreen() {
       completed: false,
     },
   ]);
+
+  const userName = user?.name || 'Người dùng';
+  const userEmail = user?.email || 'Đăng nhập để đồng bộ dữ liệu';
+  const greetingText = user?.name
+    ? `Xin chào, ${user.name.split(' ')[0]}!`
+    : 'Xin chào!';
+
+  const handleAuthPress = () => {
+    console.log('[UI] Google button pressed', { hasUser: !!user });
+    if (user) {
+      signOut();
+    } else {
+      signInWithGoogle();
+    }
+  };
 
   // Lấy các ngày trong tuần
   const getWeekDates = (dateString) => {
@@ -338,10 +357,14 @@ export default function HomeScreen() {
             <Ionicons name="close" size={24} color={colors.text} />
           </TouchableOpacity>
           <View style={[styles.menuUserIcon, { backgroundColor: colors.primaryLight }]}>
-            <Ionicons name="person" size={32} color={colors.primary} />
+            {user?.picture ? (
+              <Image source={{ uri: user.picture }} style={styles.menuUserImage} />
+            ) : (
+              <Ionicons name="person" size={32} color={colors.primary} />
+            )}
           </View>
-          <Text style={[styles.menuUserName, { color: colors.text }]}>Người dùng</Text>
-          <Text style={[styles.menuUserEmail, { color: colors.textSecondary }]}>user@example.com</Text>
+          <Text style={[styles.menuUserName, { color: colors.text }]}>{userName}</Text>
+          <Text style={[styles.menuUserEmail, { color: colors.textSecondary }]}>{userEmail}</Text>
         </View>
 
         <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
@@ -393,18 +416,48 @@ export default function HomeScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.menuItem}
+            style={[styles.menuItem, styles.menuAuthItem]}
             onPress={() => {
               closeMenu();
-              // Handle logout
+              handleAuthPress();
             }}
             activeOpacity={0.7}
+            disabled={isAuthenticating}
           >
-            <View style={[styles.menuItemIcon, { backgroundColor: isDarkMode ? '#7f1d1d' : '#fee2e2' }]}>
-              <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+            <View
+              style={[
+                styles.menuItemIcon,
+                user
+                  ? { backgroundColor: isDarkMode ? '#7f1d1d' : '#fee2e2' }
+                  : { backgroundColor: colors.primaryLight },
+              ]}
+            >
+              <Ionicons
+                name={user ? 'log-out-outline' : 'logo-google'}
+                size={20}
+                color={user ? '#ef4444' : colors.primary}
+              />
             </View>
-            <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Đăng xuất</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            <View style={styles.menuAuthContent}>
+              <Text
+                style={[
+                  styles.menuItemText,
+                  user ? { color: '#ef4444' } : { color: colors.text },
+                ]}
+              >
+                {user ? 'Đăng xuất' : 'Đăng nhập Google'}
+              </Text>
+              {!user && (
+                <Text style={[styles.menuItemHint, { color: colors.textSecondary }]}>
+                  Đăng nhập để đồng bộ lịch làm việc của bạn
+                </Text>
+              )}
+            </View>
+            {isAuthenticating ? (
+              <ActivityIndicator size="small" color={user ? '#ef4444' : colors.primary} />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            )}
           </TouchableOpacity>
         </View>
         </Animated.View>
@@ -433,7 +486,7 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <View>
-          <Text style={[styles.greeting, { color: colors.text }]}>Xin chào! 👋</Text>
+          <Text style={[styles.greeting, { color: colors.text }]}>{greetingText}</Text>
           <Text style={[styles.dateText, { color: colors.textSecondary }]}>{formatDate(selectedDate)}</Text>
         </View>
         <TouchableOpacity style={styles.addButton} activeOpacity={0.8}>
@@ -729,6 +782,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  menuUserImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
   menuUserName: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -751,6 +809,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     borderBottomWidth: 1,
   },
+  menuAuthItem: {
+    alignItems: 'center',
+  },
   menuItemIcon: {
     width: 36,
     height: 36,
@@ -763,6 +824,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '500',
+  },
+  menuAuthContent: {
+    flex: 1,
+    marginRight: 8,
+  },
+  menuItemHint: {
+    fontSize: 12,
+    marginTop: 2,
   },
   logoIcon: {
     width: 40,
