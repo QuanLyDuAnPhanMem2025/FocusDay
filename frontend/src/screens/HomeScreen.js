@@ -1,25 +1,30 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
-  TouchableOpacity,
   SafeAreaView,
   StatusBar,
-  Animated,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
   RefreshControl,
-  LayoutAnimation,
+  Image,
+  Animated,
+  Easing,
   Platform,
   UIManager,
-  Easing,
-  Image,
-  ActivityIndicator,
+  LayoutAnimation,
+  Modal,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Calendar } from 'react-native-calendars';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import api from '../api/axios';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -27,62 +32,78 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 export default function HomeScreen() {
+  const navigation = useNavigation();
   const { colors, isDarkMode, toggleTheme } = useTheme();
   const { user, isAuthenticating, signInWithGoogle, signOut } = useAuth();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState('day'); // 'day', 'week', 'month'
-  const [refreshing, setRefreshing] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(false); // Để control việc render drawer
+  const [isAiModalVisible, setIsAiModalVisible] = useState(false);
+  const [aiInsights, setAiInsights] = useState(null);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-300)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
-  
-  // Dữ liệu mẫu - sau này sẽ lấy từ backend
-  const [tasks, setTasks] = useState([
-    {
-      id: '1',
-      title: 'Họp với team',
-      time: '09:00',
-      date: new Date().toISOString().split('T')[0],
-      type: 'meeting',
-      completed: false,
-    },
-    {
-      id: '2',
-      title: 'Review code',
-      time: '14:00',
-      date: new Date().toISOString().split('T')[0],
-      type: 'work',
-      completed: false,
-    },
-    {
-      id: '3',
-      title: 'Gym',
-      time: '18:00',
-      date: new Date().toISOString().split('T')[0],
-      type: 'personal',
-      completed: false,
-    },
-    {
-      id: '4',
-      title: 'Meeting với client',
-      time: '10:00',
-      date: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Ngày mai
-      type: 'meeting',
-      completed: false,
-    },
-    {
-      id: '5',
-      title: 'Làm báo cáo',
-      time: '15:00',
-      date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      type: 'work',
-      completed: false,
-    },
-  ]);
+
+  const normalizeTaskFromApi = useCallback((task) => {
+    const dueDateValue = task?.dueDate || task?.date;
+    let normalizedDate = task?.date || '';
+    if (dueDateValue) {
+      const parsed = new Date(dueDateValue);
+      if (!Number.isNaN(parsed.getTime())) {
+        normalizedDate = parsed.toISOString().split('T')[0];
+      }
+    }
+    return {
+      ...task,
+      dueDate: dueDateValue,
+      date: normalizedDate,
+    };
+  }, []);
+
+  const fetchTasks = useCallback(async () => {
+    if (!user) {
+      setTasks([]);
+      return;
+    }
+    setIsLoading(true);
+    try {
+      // Backend đang mong đợi userId trong query params
+      const response = await api.get('/tasks', {
+        params: { userId: user.email },
+      });
+      // MongoDB sử dụng _id, chúng ta cần map nó tới id nếu cần, hoặc dùng _id trực tiếp
+      console.log(`[HomeScreen] Fetched ${response.data.length} tasks for user: ${user.email}`);
+      const normalizedTasks = response.data.map(normalizeTaskFromApi);
+      setTasks(normalizedTasks);
+    } catch (error) {
+      console.error('Fetch tasks error:', error.response?.data || error.message);
+      console.error('Full error:', error);
+      // Chỉ hiển thị alert nếu không phải là lỗi network tạm thời
+      if (error.code !== 'ERR_NETWORK' && error.code !== 'ECONNABORTED') {
+        Alert.alert('Lỗi', 'Không thể tải danh sách công việc.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, normalizeTaskFromApi]);
+
+  // Fetch tasks khi component mount
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Fetch tasks lại khi màn hình được focus (ví dụ: quay lại từ AddTaskScreen)
+  useFocusEffect(
+    useCallback(() => {
+      fetchTasks();
+    }, [fetchTasks])
+  );
 
   const userName = user?.name || 'Người dùng';
   const userEmail = user?.email || 'Đăng nhập để đồng bộ dữ liệu';
@@ -96,6 +117,19 @@ export default function HomeScreen() {
       signOut();
     } else {
       signInWithGoogle();
+    }
+  };
+
+  const getTaskTypeLabel = (type) => {
+    switch (type) {
+      case 'meeting':
+        return 'Cuộc họp';
+      case 'work':
+        return 'Công việc';
+      case 'personal':
+        return 'Cá nhân';
+      default:
+        return 'Mục chung';
     }
   };
 
@@ -130,6 +164,137 @@ export default function HomeScreen() {
     }
     return monthDates;
   };
+
+  const parseTimeToMinutes = useCallback((timeString) => {
+    if (!timeString) return null;
+    const [hoursStr, minutesStr] = timeString.split(':');
+    const hours = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return null;
+    }
+    return hours * 60 + minutes;
+  }, []);
+
+  const formatMinutesToLabel = useCallback((totalMinutes) => {
+    if (typeof totalMinutes !== 'number') {
+      return '09:00';
+    }
+    const normalized = Math.max(0, totalMinutes);
+    const hours = Math.floor(normalized / 60) % 24;
+    const minutes = normalized % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }, []);
+
+  const formatTimeRange = useCallback(
+    (startMinutes = 540, duration = 60) => {
+      const safeStart = Math.max(0, startMinutes);
+      const end = safeStart + duration;
+      return `${formatMinutesToLabel(safeStart)} - ${formatMinutesToLabel(end)}`;
+    },
+    [formatMinutesToLabel]
+  );
+
+  const buildAiInsights = useCallback(() => {
+    const tasksForDate = tasks.filter((task) => task.date === selectedDate);
+    const pendingTasks = tasksForDate.filter((task) => !task.completed);
+    const typePriority = {
+      meeting: 4,
+      work: 3,
+      personal: 2,
+      default: 1,
+    };
+
+    const scoredPending = pendingTasks
+      .map((task) => {
+        const timeValue = parseTimeToMinutes(task.time);
+        const base = typePriority[task.type] || 1;
+        const noteBonus = task.notes?.length > 40 ? 0.2 : 0;
+        return {
+          task,
+          timeValue,
+          score: base + noteBonus + (timeValue !== null ? 1.5 : 0),
+        };
+      })
+      .sort((a, b) => {
+        if (a.timeValue !== null && b.timeValue !== null) {
+          return a.timeValue - b.timeValue;
+        }
+        if (a.timeValue !== null) return -1;
+        if (b.timeValue !== null) return 1;
+        return b.score - a.score;
+      });
+
+    const focusBlocks = scoredPending.slice(0, 3).map((entry, index) => {
+      let startMinutes = entry.timeValue;
+      if (startMinutes === null) {
+        startMinutes = 9 * 60 + index * 90;
+      }
+      return {
+        id: entry.task._id || `${entry.task.title}-${index}`,
+        title: entry.task.title,
+        typeLabel: getTaskTypeLabel(entry.task.type),
+        range: formatTimeRange(startMinutes),
+      };
+    });
+
+    const quickWins = pendingTasks
+      .filter((task) => (task.notes?.length || 0) < 60 && task.type !== 'meeting')
+      .slice(0, 2)
+      .map((task) => ({
+        id: task._id,
+        title: task.title,
+        reason: task.time ? `Có lịch cụ thể lúc ${task.time}` : 'Không cần chuẩn bị nhiều',
+      }));
+
+    const upcoming = tasks
+      .filter((task) => Boolean(task.date) && !task.completed && task.date > selectedDate)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 3)
+      .map((task) => ({
+        id: task._id,
+        title: task.title,
+        dateLabel: new Date(task.date).toLocaleDateString('vi-VN', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'numeric',
+        }),
+      }));
+
+    const total = tasksForDate.length;
+    const pendingCount = pendingTasks.length;
+    const completedCount = total - pendingCount;
+    const utilization = total ? Math.round((completedCount / total) * 100) : 0;
+    const confidence = Math.min(95, Math.max(45, 60 + completedCount * 10 - pendingCount * 5));
+
+    const nextFocusTitle = focusBlocks[0]?.title || pendingTasks[0]?.title;
+    const nextFocusTime = focusBlocks[0]?.range?.split(' - ')[0] || '09:00';
+
+    const summary =
+      total === 0
+        ? 'Chưa có công việc nào cho ngày này. AI gợi ý bạn dành thời gian lên kế hoạch hoặc nghỉ ngơi.'
+        : pendingCount === 0
+        ? 'Bạn đã hoàn thành mọi nhiệm vụ hôm nay. Dùng thời gian rảnh để xem lại mục tiêu tuần.'
+        : `Bạn còn ${pendingCount} nhiệm vụ. Bắt đầu với "${nextFocusTitle}" vào lúc ${nextFocusTime} để giữ nhịp làm việc.`;
+
+    const energyTip =
+      pendingCount === 0
+        ? 'Dành 15 phút tổng kết và chuẩn bị cho ngày mai.'
+        : pendingCount > 3
+        ? 'Chia các khối công việc thành 60 phút và xen kẽ 5 phút nghỉ để giữ năng lượng.'
+        : 'Tập trung dứt điểm từng mục trong 25 phút để giải phóng tâm trí.';
+
+    return {
+      summary,
+      stats: { total, pending: pendingCount, completed: completedCount },
+      focusBlocks,
+      quickWins,
+      upcoming,
+      utilization,
+      confidence,
+      energyTip,
+    };
+  }, [tasks, selectedDate, parseTimeToMinutes, formatTimeRange, getTaskTypeLabel]);
 
   // Lọc tasks theo view mode
   const getFilteredTasks = () => {
@@ -211,12 +376,98 @@ export default function HomeScreen() {
     }
   };
 
-  const toggleTaskComplete = (taskId) => {
-    // Smooth animation khi toggle
+  const toggleTaskComplete = async (taskId) => {
+    const task = tasks.find(t => t._id === taskId);
+    if (!task) return;
+
+    const updatedTask = { ...task, completed: !task.completed };
+
+    // Optimistic UI update
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setTasks(tasks.map(task =>
-      task.id === taskId ? { ...task, completed: !task.completed } : task
-    ));
+    setTasks(tasks.map(t => (t._id === taskId ? updatedTask : t)));
+
+    try {
+      await api.put(`/tasks/${taskId}`, { completed: updatedTask.completed });
+    } catch (error) {
+      // Revert on error
+      Alert.alert('Lỗi', 'Không thể cập nhật công việc.');
+      console.error('Update task error:', error);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setTasks(tasks.map(t => (t._id === taskId ? task : t)));
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    const task = tasks.find(t => t._id === taskId);
+    if (!task) return;
+
+    Alert.alert(
+      'Xóa công việc',
+      `Bạn có chắc chắn muốn xóa "${task.title}"?`,
+      [
+        {
+          text: 'Hủy',
+          style: 'cancel',
+        },
+        {
+          text: 'Xóa',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.delete(`/tasks/${taskId}`);
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setTasks(tasks.filter(t => t._id !== taskId));
+            } catch (error) {
+              console.error('Delete task error:', error);
+              Alert.alert('Lỗi', 'Không thể xóa công việc. Vui lòng thử lại.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleTaskPress = (task) => {
+    const taskId = task?._id;
+    navigation.navigate('TaskDetail', {
+      task,
+      onTaskUpdated: (updatedTask) => {
+        const normalizedTask = normalizeTaskFromApi(updatedTask);
+        setTasks(prevTasks => prevTasks.map(t => (t._id === normalizedTask._id ? normalizedTask : t)));
+      },
+      onTaskDeleted: () => {
+        setTasks(prevTasks => prevTasks.filter(t => t._id !== taskId));
+      },
+    });
+  };
+
+  const handleOptimizeSchedule = useCallback(async () => {
+    if (!user) {
+      Alert.alert('Cần đăng nhập', 'Hãy đăng nhập để AI có thể phân tích công việc của bạn.');
+      return;
+    }
+
+    if (!tasks.length) {
+      Alert.alert('Chưa có dữ liệu', 'Bạn cần thêm ít nhất một công việc để AI tối ưu hóa lịch.');
+      return;
+    }
+
+    setIsGeneratingAi(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      const insights = buildAiInsights();
+      setAiInsights(insights);
+      setIsAiModalVisible(true);
+    } catch (error) {
+      console.error('AI optimization error', error);
+      Alert.alert('Lỗi', 'Không thể tạo gợi ý AI. Vui lòng thử lại sau.');
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  }, [user, tasks.length, buildAiInsights]);
+
+  const closeAiModal = () => {
+    setIsAiModalVisible(false);
   };
 
   const handleViewModeChange = (mode) => {
@@ -224,13 +475,9 @@ export default function HomeScreen() {
     setViewMode(mode);
   };
 
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    // Simulate refresh - sau này sẽ gọi API
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
-  }, []);
+  const onRefresh = useCallback(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   // Fade in animation khi component mount
   useEffect(() => {
@@ -315,6 +562,127 @@ export default function HomeScreen() {
     textDayHeaderFontSize: 13,
     disabledDayTextColor: colors.textTertiary,
     reservationColor: colors.surface,
+  };
+
+  const renderTasks = () => {
+    const filteredTasks = getFilteredTasks();
+
+    if (isLoading && tasks.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Đang tải công việc...</Text>
+        </View>
+      );
+    }
+
+    if (!user) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="log-in-outline" size={64} color={colors.emptyIcon} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Vui lòng đăng nhập</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textTertiary }]}>Đăng nhập để xem và quản lý công việc của bạn.</Text>
+        </View>
+      );
+    }
+
+    if (filteredTasks.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="calendar-outline" size={64} color={colors.emptyIcon} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Không có công việc nào</Text>
+          <Text style={[styles.emptySubtext, { color: colors.textTertiary }]}>Nhấn nút + để thêm công việc mới</Text>
+        </View>
+      );
+    }
+
+    return filteredTasks
+      .sort((a, b) => a.time.localeCompare(b.time))
+      .map((task) => {
+        const renderRightActions = (progress, dragX) => {
+          const scale = dragX.interpolate({
+            inputRange: [-100, 0],
+            outputRange: [1, 0],
+            extrapolate: 'clamp',
+          });
+
+          return (
+            <TouchableOpacity
+              style={[styles.deleteAction, { backgroundColor: '#ef4444' }]}
+              onPress={() => handleDeleteTask(task._id)}
+              activeOpacity={0.7}
+            >
+              <Animated.View style={{ transform: [{ scale }] }}>
+                <Ionicons name="trash" size={24} color="#fff" />
+                <Text style={styles.deleteActionText}>Xóa</Text>
+              </Animated.View>
+            </TouchableOpacity>
+          );
+        };
+
+        return (
+          <Swipeable
+            key={task._id}
+            renderRightActions={renderRightActions}
+            rightThreshold={40}
+          >
+            <TouchableOpacity
+              style={[
+                styles.taskItem,
+                { backgroundColor: colors.surface },
+                task.completed && styles.taskItemCompleted,
+              ]}
+              onPress={() => handleTaskPress(task)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) + '20' }]}>
+                <Ionicons
+                  name={getTaskIcon(task.type)}
+                  size={20}
+                  color={getTaskColor(task.type)}
+                />
+              </View>
+              <View style={styles.taskContent}>
+                <Text
+                  style={[
+                    styles.taskTitle,
+                    { color: colors.text },
+                    task.completed && { color: colors.textTertiary },
+                  ]}
+                >
+                  {task.title}
+                </Text>
+                <View style={styles.taskMeta}>
+                  {(viewMode === 'week' || viewMode === 'month') && (
+                    <Text style={[styles.taskDate, { color: colors.textSecondary }]}>
+                      <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />{' '}
+                      {new Date(task.date).toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' })}
+                    </Text>
+                  )}
+                  <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
+                    <Ionicons name="time-outline" size={14} color={colors.textSecondary} /> {task.time}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.checkbox,
+                  { borderColor: colors.border },
+                  task.completed && styles.checkboxCompleted,
+                ]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  toggleTaskComplete(task._id);
+                }}
+              >
+                {task.completed && (
+                  <Ionicons name="checkmark" size={16} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Swipeable>
+        );
+      });
   };
 
   return (
@@ -489,7 +857,15 @@ export default function HomeScreen() {
           <Text style={[styles.greeting, { color: colors.text }]}>{greetingText}</Text>
           <Text style={[styles.dateText, { color: colors.textSecondary }]}>{formatDate(selectedDate)}</Text>
         </View>
-        <TouchableOpacity style={styles.addButton} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.addButton}
+          activeOpacity={0.8}
+          onPress={() =>
+            navigation.navigate('AddTask', {
+              date: selectedDate,
+            })
+          }
+        >
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -500,7 +876,7 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={isLoading}
               onRefresh={onRefresh}
               tintColor={colors.primary}
               colors={[colors.primary]}
@@ -599,75 +975,23 @@ export default function HomeScreen() {
             <Text style={[styles.sectionTitle, { color: colors.text }]}>{getSectionTitle()}</Text>
             <Text style={[styles.taskCount, { color: colors.textSecondary }]}>{getFilteredTasks().length} công việc</Text>
           </View>
-
-          {getFilteredTasks().length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="calendar-outline" size={64} color={colors.emptyIcon} />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Không có công việc nào</Text>
-              <Text style={[styles.emptySubtext, { color: colors.textTertiary }]}>Nhấn nút + để thêm công việc mới</Text>
-            </View>
-          ) : (
-            getFilteredTasks()
-              .sort((a, b) => a.time.localeCompare(b.time))
-              .map((task) => (
-              <TouchableOpacity
-                key={task.id}
-                style={[
-                  styles.taskItem,
-                  { backgroundColor: colors.surface },
-                  task.completed && styles.taskItemCompleted,
-                ]}
-                onPress={() => toggleTaskComplete(task.id)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) + '20' }]}>
-                  <Ionicons
-                    name={getTaskIcon(task.type)}
-                    size={20}
-                    color={getTaskColor(task.type)}
-                  />
-                </View>
-                <View style={styles.taskContent}>
-                  <Text
-                    style={[
-                      styles.taskTitle,
-                      { color: colors.text },
-                      task.completed && { color: colors.textTertiary },
-                    ]}
-                  >
-                    {task.title}
-                  </Text>
-                  <View style={styles.taskMeta}>
-                    {(viewMode === 'week' || viewMode === 'month') && (
-                      <Text style={[styles.taskDate, { color: colors.textSecondary }]}>
-                        <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />{' '}
-                        {new Date(task.date).toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' })}
-                      </Text>
-                    )}
-                    <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
-                      <Ionicons name="time-outline" size={14} color={colors.textSecondary} /> {task.time}
-                    </Text>
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[
-                    styles.checkbox,
-                    { borderColor: colors.border },
-                    task.completed && styles.checkboxCompleted,
-                  ]}
-                  onPress={() => toggleTaskComplete(task.id)}
-                >
-                  {task.completed && (
-                    <Ionicons name="checkmark" size={16} color="#fff" />
-                  )}
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ))
-          )}
+          {renderTasks()}
         </View>
 
         {/* AI Optimization Card */}
-        <TouchableOpacity style={[styles.aiCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={[
+            styles.aiCard,
+            {
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
+              opacity: isGeneratingAi ? 0.7 : 1,
+            },
+          ]}
+          activeOpacity={0.9}
+          onPress={handleOptimizeSchedule}
+          disabled={isGeneratingAi}
+        >
           <View style={styles.aiCardContent}>
             <View style={[styles.aiIcon, { backgroundColor: colors.primaryLight }]}>
               <Ionicons name="sparkles" size={24} color={colors.primary} />
@@ -675,14 +999,137 @@ export default function HomeScreen() {
             <View style={styles.aiText}>
               <Text style={[styles.aiTitle, { color: colors.text }]}>Tối ưu hóa lịch với AI</Text>
               <Text style={[styles.aiSubtitle, { color: colors.textSecondary }]}>
-                Để AI sắp xếp lại lịch làm việc của bạn
+                Nhấn để AI đề xuất block tập trung và thứ tự ưu tiên
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            {isGeneratingAi ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            )}
           </View>
         </TouchableOpacity>
         </ScrollView>
       </Animated.View>
+      <Modal
+        visible={isAiModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={closeAiModal}
+      >
+        <View style={styles.aiModalOverlay}>
+          <View style={[styles.aiModalContainer, { backgroundColor: colors.surface }]}>
+            <View style={styles.aiModalHeader}>
+              <Text style={[styles.aiModalTitle, { color: colors.text }]}>
+                Gợi ý AI cho {formatDate(selectedDate)}
+              </Text>
+              <TouchableOpacity style={styles.aiModalClose} onPress={closeAiModal}>
+                <Ionicons name="close" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            {aiInsights ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <Text style={[styles.aiModalSummary, { color: colors.textSecondary }]}>
+                  {aiInsights.summary}
+                </Text>
+                <View style={styles.aiConfidenceRow}>
+                  <Text style={[styles.aiConfidenceLabel, { color: colors.textSecondary }]}>
+                    Độ tin cậy khoảng {aiInsights.confidence}%
+                  </Text>
+                  <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border }]}>
+                    <View
+                      style={[
+                        styles.aiConfidenceValue,
+                        { backgroundColor: colors.primary, width: `${aiInsights.confidence}%` },
+                      ]}
+                    />
+                  </View>
+                </View>
+                <View style={styles.aiStatRow}>
+                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
+                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
+                      {aiInsights.stats.total}
+                    </Text>
+                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Tổng</Text>
+                  </View>
+                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
+                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
+                      {aiInsights.stats.pending}
+                    </Text>
+                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Chưa xong</Text>
+                  </View>
+                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
+                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
+                      {aiInsights.stats.completed}
+                    </Text>
+                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Đã hoàn tất</Text>
+                  </View>
+                </View>
+                <View style={styles.aiModalSection}>
+                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Block nên ưu tiên</Text>
+                  {aiInsights.focusBlocks.length ? (
+                    aiInsights.focusBlocks.map((item) => (
+                      <View key={item.id} style={[styles.aiFocusItem, { borderColor: colors.border }]}>
+                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
+                        <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
+                          {item.range} · {item.typeLabel}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={{ color: colors.textSecondary }}>
+                      Không có nhiệm vụ nào cần ưu tiên trong ngày này.
+                    </Text>
+                  )}
+                </View>
+                {aiInsights.quickWins.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Quick wins</Text>
+                    {aiInsights.quickWins.map((item) => (
+                      <View
+                        key={item.id}
+                        style={[styles.aiQuickWinItem, { borderColor: colors.border }]}
+                      >
+                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                          {item.reason}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {aiInsights.upcoming.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Sắp đến hạn</Text>
+                    {aiInsights.upcoming.map((item) => (
+                      <View key={item.id} style={styles.aiUpcomingItem}>
+                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
+                        <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
+                          {item.dateLabel}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View style={styles.aiModalSection}>
+                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Mẹo năng lượng</Text>
+                  <Text style={{ color: colors.textSecondary }}>{aiInsights.energyTip}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.aiModalAction, { backgroundColor: colors.primary }]}
+                  onPress={closeAiModal}
+                >
+                  <Text style={styles.aiModalActionText}>Đóng gợi ý</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            ) : (
+              <View style={styles.aiModalLoading}>
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1080,6 +1527,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#10b981',
     borderColor: '#10b981',
   },
+  deleteAction: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  deleteActionText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
   aiCard: {
     marginHorizontal: 16,
     marginTop: 16,
@@ -1121,5 +1582,129 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
   },
+  aiModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  aiModalContainer: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    maxHeight: '85%',
+  },
+  aiModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  aiModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+    marginRight: 12,
+  },
+  aiModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  aiModalSummary: {
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  aiConfidenceRow: {
+    marginBottom: 16,
+  },
+  aiConfidenceLabel: {
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  aiConfidenceBar: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  aiConfidenceValue: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  aiStatRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  aiStatItem: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 4,
+  },
+  aiStatValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  aiStatLabel: {
+    fontSize: 12,
+  },
+  aiModalSection: {
+    marginBottom: 20,
+  },
+  aiSectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  aiFocusItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  aiFocusTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  aiFocusTime: {
+    fontSize: 13,
+  },
+  aiQuickWinItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+  },
+  aiQuickWinReason: {
+    fontSize: 12,
+  },
+  aiUpcomingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  aiModalAction: {
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  aiModalActionText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  aiModalLoading: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
-

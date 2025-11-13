@@ -107,14 +107,14 @@ export const AuthProvider = ({ children }) => {
     });
     if (!isGoogleConfigAvailable) {
       Alert.alert(
-        'Chua c?u h�nh Google OAuth',
-        'Thi?t l?p EXPO_PUBLIC_GOOGLE_* trong file m�i tru?ng d? b?t dang nh?p.'
+        'Chưa cấu hình Google OAuth',
+        'Thiết lập EXPO_PUBLIC_GOOGLE_* trong file môi trường để bật đăng nhập.'
       );
       return;
     }
 
     if (!request) {
-      Alert.alert('Kh�ng th? kh?i t?o dang nh?p', 'Vui l�ng t?i l?i ?ng d?ng v� th? l?i.');
+      Alert.alert('Không thể khởi tạo đăng nhập', 'Vui lòng tải lại ứng dụng và thử lại.');
       return;
     }
 
@@ -123,8 +123,8 @@ export const AuthProvider = ({ children }) => {
       console.log('[Auth] calling promptAsync');
       await promptAsync();
     } catch (error) {
-      console.error('�ang nh?p Google th?t b?i', error);
-      Alert.alert('�ang nh?p th?t b?i', 'Vui l�ng th? l?i sau.');
+      console.error('Đăng nhập Google thất bại', error);
+      Alert.alert('Đăng nhập thất bại', 'Vui lòng thử lại sau.');
       setIsAuthenticating(false);
     }
   }, [isGoogleConfigAvailable, request, promptAsync]);
@@ -133,7 +133,7 @@ export const AuthProvider = ({ children }) => {
     try {
       await AsyncStorage.removeItem(STORAGE_KEY);
     } catch (error) {
-      console.warn('Kh�ng th? x�a th�ng tin ngu?i d�ng', error);
+      console.warn('Không thể xóa thông tin người dùng', error);
     } finally {
       setUser(null);
       setIsAuthenticating(false);
@@ -155,11 +155,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
-
-
-
-
-
-
-
