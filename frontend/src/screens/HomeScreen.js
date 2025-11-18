@@ -54,9 +54,14 @@ export default function HomeScreen() {
     const dueDateValue = task?.dueDate || task?.date;
     let normalizedDate = task?.date || '';
     if (dueDateValue) {
+      // Nếu là Date object hoặc ISO string, parse và format thành YYYY-MM-DD
       const parsed = new Date(dueDateValue);
       if (!Number.isNaN(parsed.getTime())) {
-        normalizedDate = parsed.toISOString().split('T')[0];
+        // Dùng UTC để tránh timezone issues
+        const year = parsed.getUTCFullYear();
+        const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getUTCDate()).padStart(2, '0');
+        normalizedDate = `${year}-${month}-${day}`;
       }
     }
     return {
@@ -251,15 +256,20 @@ export default function HomeScreen() {
       .filter((task) => Boolean(task.date) && !task.completed && task.date > selectedDate)
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 3)
-      .map((task) => ({
-        id: task._id,
-        title: task.title,
-        dateLabel: new Date(task.date).toLocaleDateString('vi-VN', {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'numeric',
-        }),
-      }));
+      .map((task) => {
+        // Parse date string đúng cách để tránh timezone issues
+        const [year, month, day] = task.date.split('-').map(Number);
+        const taskDate = new Date(year, month - 1, day);
+        return {
+          id: task._id,
+          title: task.title,
+          dateLabel: taskDate.toLocaleDateString('vi-VN', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'numeric',
+          }),
+        };
+      });
 
     const total = tasksForDate.length;
     const pendingCount = pendingTasks.length;
@@ -284,6 +294,104 @@ export default function HomeScreen() {
         ? 'Chia các khối công việc thành 60 phút và xen kẽ 5 phút nghỉ để giữ năng lượng.'
         : 'Tập trung dứt điểm từng mục trong 25 phút để giải phóng tâm trí.';
 
+    // Tính toán năng suất tuần
+    const weekDates = getWeekDates(selectedDate);
+    const weekTasks = tasks.filter(t => weekDates.includes(t.date));
+    const weekCompleted = weekTasks.filter(t => t.completed).length;
+    const weekTotal = weekTasks.length;
+    const weekProductivity = weekTotal > 0 ? Math.round((weekCompleted / weekTotal) * 100) : 0;
+
+    // Phân tích thời gian làm việc
+    const tasksWithTime = tasksForDate.filter(t => t.time);
+    const timeDistribution = tasksWithTime.map(t => {
+      const timeValue = parseTimeToMinutes(t.time);
+      return { task: t, time: timeValue };
+    }).sort((a, b) => a.time - b.time);
+
+    // Gợi ý sắp xếp thời gian thông minh
+    const timeSuggestions = [];
+    if (timeDistribution.length > 0) {
+      for (let i = 0; i < timeDistribution.length - 1; i++) {
+        const current = timeDistribution[i];
+        const next = timeDistribution[i + 1];
+        const gap = next.time - current.time;
+        if (gap < 30) {
+          timeSuggestions.push({
+            task1: current.task.title,
+            task2: next.task.title,
+            suggestion: `Khoảng cách giữa "${current.task.title}" và "${next.task.title}" chỉ ${gap} phút. Cân nhắc điều chỉnh thời gian để có thời gian nghỉ.`,
+          });
+        }
+      }
+    }
+
+    // Phân tích loại công việc
+    const typeAnalysis = {};
+    tasksForDate.forEach(task => {
+      if (!typeAnalysis[task.type]) {
+        typeAnalysis[task.type] = { total: 0, completed: 0 };
+      }
+      typeAnalysis[task.type].total++;
+      if (task.completed) {
+        typeAnalysis[task.type].completed++;
+      }
+    });
+
+    const typeInsights = Object.entries(typeAnalysis).map(([type, data]) => {
+      const completionRate = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;
+      return {
+        type: getTaskTypeLabel(type),
+        total: data.total,
+        completed: data.completed,
+        rate: completionRate,
+        tip: completionRate < 50 
+          ? `Bạn đang hoàn thành ${completionRate}% ${getTaskTypeLabel(type)}. Hãy tập trung hơn vào loại này.`
+          : `Tuyệt vời! Bạn đã hoàn thành ${completionRate}% ${getTaskTypeLabel(type)}.`,
+      };
+    });
+
+    // Gợi ý ưu tiên thông minh
+    const prioritySuggestions = [];
+    if (pendingTasks.length > 0) {
+      const highPriority = pendingTasks.filter(t => t.type === 'meeting' || t.type === 'work');
+      if (highPriority.length > 0) {
+        prioritySuggestions.push({
+          title: 'Ưu tiên công việc quan trọng',
+          tasks: highPriority.slice(0, 3).map(t => t.title),
+          reason: 'Các công việc này có mức độ ưu tiên cao, nên hoàn thành trước.',
+        });
+      }
+    }
+
+    // Phân tích xu hướng
+    const allTasks = tasks.filter(t => t.date && !t.date.startsWith('1970')); // Loại bỏ invalid dates
+    const completedTasks = allTasks.filter(t => t.completed);
+    const overallCompletionRate = allTasks.length > 0 
+      ? Math.round((completedTasks.length / allTasks.length) * 100) 
+      : 0;
+
+    // Gợi ý cải thiện
+    const improvementTips = [];
+    if (overallCompletionRate < 50) {
+      improvementTips.push('Tỷ lệ hoàn thành của bạn đang thấp. Hãy đặt mục tiêu nhỏ hơn và tập trung vào từng nhiệm vụ.');
+    } else if (overallCompletionRate < 70) {
+      improvementTips.push('Bạn đang làm tốt! Hãy tiếp tục duy trì nhịp độ này.');
+    } else {
+      improvementTips.push('Xuất sắc! Bạn đang quản lý thời gian rất hiệu quả. Hãy tiếp tục phát huy!');
+    }
+
+    if (pendingCount > 5) {
+      improvementTips.push('Bạn có quá nhiều công việc chưa hoàn thành. Hãy xem xét hoãn hoặc ủy thác một số nhiệm vụ.');
+    }
+
+    // Thống kê thời gian
+    const timeStats = {
+      totalTasksWithTime: tasksWithTime.length,
+      earliestTask: timeDistribution[0]?.task?.title || null,
+      latestTask: timeDistribution[timeDistribution.length - 1]?.task?.title || null,
+      averageTasksPerDay: weekTotal > 0 ? Math.round((weekTotal / 7) * 10) / 10 : 0,
+    };
+
     return {
       summary,
       stats: { total, pending: pendingCount, completed: completedCount },
@@ -293,6 +401,14 @@ export default function HomeScreen() {
       utilization,
       confidence,
       energyTip,
+      // New features
+      weekProductivity,
+      timeSuggestions,
+      typeInsights,
+      prioritySuggestions,
+      overallCompletionRate,
+      improvementTips,
+      timeStats,
     };
   }, [tasks, selectedDate, parseTimeToMinutes, formatTimeRange, getTaskTypeLabel]);
 
@@ -349,14 +465,28 @@ export default function HomeScreen() {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    if (!dateString) return '';
+    // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
+    let dateStr = typeof dateString === 'string' ? dateString : dateString.toISOString().split('T')[0];
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if ([year, month, day].some((part) => Number.isNaN(part))) {
+      return '';
+    }
+    // Tạo Date object từ local time (month - 1 vì Date month bắt đầu từ 0)
+    const date = new Date(year, month - 1, day);
+    
     if (viewMode === 'day') {
       const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
       return date.toLocaleDateString('vi-VN', options);
     } else if (viewMode === 'week') {
       const weekDates = getWeekDates(dateString);
-      const startDate = new Date(weekDates[0]);
-      const endDate = new Date(weekDates[6]);
+      // Parse week dates đúng cách
+      const parseWeekDate = (dateStr) => {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      };
+      const startDate = parseWeekDate(weekDates[0]);
+      const endDate = parseWeekDate(weekDates[6]);
       const start = startDate.toLocaleDateString('vi-VN', { day: 'numeric', month: 'long' });
       const end = endDate.toLocaleDateString('vi-VN', { day: 'numeric', month: 'long', year: 'numeric' });
       return `${start} - ${end}`;
@@ -620,21 +750,16 @@ export default function HomeScreen() {
           );
         };
 
-        return (
-          <Swipeable
-            key={task._id}
-            renderRightActions={renderRightActions}
-            rightThreshold={40}
+        const taskItem = (
+          <TouchableOpacity
+            style={[
+              styles.taskItem,
+              { backgroundColor: colors.surface },
+              task.completed && styles.taskItemCompleted,
+            ]}
+            onPress={() => handleTaskPress(task)}
+            activeOpacity={0.7}
           >
-            <TouchableOpacity
-              style={[
-                styles.taskItem,
-                { backgroundColor: colors.surface },
-                task.completed && styles.taskItemCompleted,
-              ]}
-              onPress={() => handleTaskPress(task)}
-              activeOpacity={0.7}
-            >
               <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) + '20' }]}>
                 <Ionicons
                   name={getTaskIcon(task.type)}
@@ -656,7 +781,12 @@ export default function HomeScreen() {
                   {(viewMode === 'week' || viewMode === 'month') && (
                     <Text style={[styles.taskDate, { color: colors.textSecondary }]}>
                       <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />{' '}
-                      {new Date(task.date).toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' })}
+                      {(() => {
+                        // Parse date string đúng cách để tránh timezone issues
+                        const [year, month, day] = task.date.split('-').map(Number);
+                        const taskDate = new Date(year, month - 1, day);
+                        return taskDate.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' });
+                      })()}
                     </Text>
                   )}
                   <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
@@ -680,6 +810,26 @@ export default function HomeScreen() {
                 )}
               </TouchableOpacity>
             </TouchableOpacity>
+        );
+
+        // Trên web, không dùng Swipeable (không hỗ trợ tốt)
+        // Trên web, người dùng có thể xóa từ task detail screen
+        if (Platform.OS === 'web') {
+          return (
+            <View key={task._id}>
+              {taskItem}
+            </View>
+          );
+        }
+
+        // Trên mobile, dùng Swipeable
+        return (
+          <Swipeable
+            key={task._id}
+            renderRightActions={renderRightActions}
+            rightThreshold={40}
+          >
+            {taskItem}
           </Swipeable>
         );
       });
@@ -1111,8 +1261,140 @@ export default function HomeScreen() {
                     ))}
                   </View>
                 )}
+                {/* Năng suất tuần */}
+                {aiInsights.weekProductivity !== undefined && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📊 Năng suất tuần</Text>
+                    <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border, marginTop: 8 }]}>
+                      <View
+                        style={[
+                          styles.aiConfidenceValue,
+                          { backgroundColor: colors.primary, width: `${aiInsights.weekProductivity}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
+                      Bạn đã hoàn thành {aiInsights.weekProductivity}% công việc trong tuần này
+                    </Text>
+                  </View>
+                )}
+
+                {/* Phân tích loại công việc */}
+                {aiInsights.typeInsights && aiInsights.typeInsights.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📋 Phân tích loại công việc</Text>
+                    {aiInsights.typeInsights.map((insight, index) => (
+                      <View key={index} style={[styles.aiFocusItem, { borderColor: colors.border, marginBottom: 8 }]}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{insight.type}</Text>
+                          <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
+                            {insight.completed}/{insight.total} ({insight.rate}%)
+                          </Text>
+                        </View>
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>{insight.tip}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Gợi ý ưu tiên */}
+                {aiInsights.prioritySuggestions && aiInsights.prioritySuggestions.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⭐ Ưu tiên thông minh</Text>
+                    {aiInsights.prioritySuggestions.map((suggestion, index) => (
+                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
+                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{suggestion.title}</Text>
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
+                          {suggestion.reason}
+                        </Text>
+                        {suggestion.tasks && suggestion.tasks.length > 0 && (
+                          <View style={{ marginTop: 8 }}>
+                            {suggestion.tasks.map((task, i) => (
+                              <Text key={i} style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                                • {task}
+                              </Text>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Gợi ý thời gian */}
+                {aiInsights.timeSuggestions && aiInsights.timeSuggestions.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⏰ Gợi ý sắp xếp thời gian</Text>
+                    {aiInsights.timeSuggestions.map((suggestion, index) => (
+                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                          {suggestion.suggestion}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Thống kê thời gian */}
+                {aiInsights.timeStats && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📈 Thống kê thời gian</Text>
+                    <View style={[styles.aiFocusItem, { borderColor: colors.border }]}>
+                      <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                        • Công việc có giờ cụ thể: {aiInsights.timeStats.totalTasksWithTime}
+                      </Text>
+                      {aiInsights.timeStats.earliestTask && (
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                          • Công việc sớm nhất: {aiInsights.timeStats.earliestTask}
+                        </Text>
+                      )}
+                      {aiInsights.timeStats.latestTask && (
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                          • Công việc muộn nhất: {aiInsights.timeStats.latestTask}
+                        </Text>
+                      )}
+                      <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                        • Trung bình {aiInsights.timeStats.averageTasksPerDay} công việc/ngày
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Gợi ý cải thiện */}
+                {aiInsights.improvementTips && aiInsights.improvementTips.length > 0 && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>💡 Gợi ý cải thiện</Text>
+                    {aiInsights.improvementTips.map((tip, index) => (
+                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
+                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>{tip}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Tỷ lệ hoàn thành tổng thể */}
+                {aiInsights.overallCompletionRate !== undefined && (
+                  <View style={styles.aiModalSection}>
+                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>🎯 Tỷ lệ hoàn thành tổng thể</Text>
+                    <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border, marginTop: 8 }]}>
+                      <View
+                        style={[
+                          styles.aiConfidenceValue,
+                          { 
+                            backgroundColor: aiInsights.overallCompletionRate >= 70 ? '#10b981' : aiInsights.overallCompletionRate >= 50 ? '#f59e0b' : '#ef4444',
+                            width: `${aiInsights.overallCompletionRate}%` 
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
+                      {aiInsights.overallCompletionRate}% công việc đã hoàn thành
+                    </Text>
+                  </View>
+                )}
+
                 <View style={styles.aiModalSection}>
-                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Mẹo năng lượng</Text>
+                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⚡ Mẹo năng lượng</Text>
                   <Text style={{ color: colors.textSecondary }}>{aiInsights.energyTip}</Text>
                 </View>
                 <TouchableOpacity

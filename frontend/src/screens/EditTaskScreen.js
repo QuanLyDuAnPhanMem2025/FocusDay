@@ -41,6 +41,7 @@ export default function EditTaskScreen() {
   const [taskType, setTaskType] = useState(task?.type || 'work');
   const [notes, setNotes] = useState(task?.notes || '');
   const [isSaving, setIsSaving] = useState(false);
+  const isWeb = Platform.OS === 'web';
 
   useEffect(() => {
     if (task) {
@@ -48,7 +49,15 @@ export default function EditTaskScreen() {
       setTaskType(task.type || 'work');
       setNotes(task.notes || '');
       if (task.date) {
-        setDate(new Date(task.date));
+        // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
+        let dateStr = typeof task.date === 'string' ? task.date : task.date.toISOString().split('T')[0];
+        const [year, month, day] = dateStr.split('-').map(Number);
+        if (![year, month, day].some((part) => Number.isNaN(part))) {
+          // Tạo Date object từ local time (month - 1 vì Date month bắt đầu từ 0)
+          setDate(new Date(year, month - 1, day));
+        } else {
+          setDate(new Date());
+        }
       }
       if (task.time) {
         const [hours, minutes] = task.time.split(':');
@@ -87,10 +96,17 @@ export default function EditTaskScreen() {
 
     setIsSaving(true);
 
-    const formattedDate = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    // Helper function để format date thành YYYY-MM-DD từ local time
+    const formatDateToString = (dateObj) => {
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
     const updatedTask = {
       title: title.trim(),
-      dueDate: formattedDate,
+      dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
       time: time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), // HH:mm
       type: taskType,
       notes: notes.trim(),
@@ -192,42 +208,110 @@ export default function EditTaskScreen() {
         {/* Date Picker */}
         <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>Ngày</Text>
-          <TouchableOpacity
-            style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Text style={{ color: colors.text }}>{date.toLocaleDateString('vi-VN')}</Text>
-          </TouchableOpacity>
+          {isWeb ? (
+            <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <input
+                type="date"
+                value={(() => {
+                  const year = date.getFullYear();
+                  const month = String(date.getMonth() + 1).padStart(2, '0');
+                  const day = String(date.getDate()).padStart(2, '0');
+                  return `${year}-${month}-${day}`;
+                })()}
+                onChange={(event) => {
+                  const value = event?.target?.value;
+                  if (!value) return;
+                  const [year, month, day] = value.split('-').map(Number);
+                  if (![year, month, day].some((part) => Number.isNaN(part))) {
+                    setDate(new Date(year, month - 1, day));
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  height: '100%',
+                  border: 'none',
+                  outline: 'none',
+                  backgroundColor: 'transparent',
+                  color: colors.text,
+                  fontSize: 16,
+                  paddingLeft: 16,
+                  paddingRight: 16,
+                }}
+              />
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={{ color: colors.text }}>{date.toLocaleDateString('vi-VN')}</Text>
+              </TouchableOpacity>
+              {showDatePicker && (
+                <DateTimePicker
+                  testID="datePicker"
+                  value={date}
+                  mode="date"
+                  display="default"
+                  onChange={onDateChange}
+                />
+              )}
+            </>
+          )}
         </View>
-        {showDatePicker && (
-          <DateTimePicker
-            testID="datePicker"
-            value={date}
-            mode="date"
-            display="default"
-            onChange={onDateChange}
-          />
-        )}
 
         {/* Time Picker */}
         <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>Giờ</Text>
-          <TouchableOpacity
-            style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
-            onPress={() => setShowTimePicker(true)}
-          >
-            <Text style={{ color: colors.text }}>{time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
-          </TouchableOpacity>
+          {isWeb ? (
+            <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <input
+                type="time"
+                value={`${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`}
+                onChange={(event) => {
+                  const value = event?.target?.value;
+                  if (!value) return;
+                  const [hours, minutes] = value.split(':').map(Number);
+                  if (![hours, minutes].some((part) => Number.isNaN(part))) {
+                    const updatedTime = new Date(time);
+                    updatedTime.setHours(hours);
+                    updatedTime.setMinutes(minutes);
+                    setTime(updatedTime);
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  height: '100%',
+                  border: 'none',
+                  outline: 'none',
+                  backgroundColor: 'transparent',
+                  color: colors.text,
+                  fontSize: 16,
+                  paddingLeft: 16,
+                  paddingRight: 16,
+                }}
+              />
+            </View>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Text style={{ color: colors.text }}>{time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
+              </TouchableOpacity>
+              {showTimePicker && (
+                <DateTimePicker
+                  testID="timePicker"
+                  value={time}
+                  mode="time"
+                  display="default"
+                  onChange={onTimeChange}
+                />
+              )}
+            </>
+          )}
         </View>
-        {showTimePicker && (
-          <DateTimePicker
-            testID="timePicker"
-            value={time}
-            mode="time"
-            display="default"
-            onChange={onTimeChange}
-          />
-        )}
 
         {/* Notes */}
         <View style={styles.inputGroup}>
@@ -332,6 +416,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  webInputWrapper: {
+    paddingHorizontal: 0,
+    overflow: 'hidden',
+  },
 });
-
-

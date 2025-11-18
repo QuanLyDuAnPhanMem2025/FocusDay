@@ -43,7 +43,17 @@ exports.createTask = async (req, res) => {
       return res.status(400).json({ msg: 'Task date is required' });
     }
 
-    const parsedDueDate = new Date(rawDateValue);
+    // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
+    let parsedDueDate;
+    if (typeof rawDateValue === 'string' && rawDateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      // Nếu là string YYYY-MM-DD, parse trực tiếp
+      const [year, month, day] = rawDateValue.split('-').map(Number);
+      parsedDueDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+    } else {
+      // Nếu là Date object hoặc ISO string, parse bình thường
+      parsedDueDate = new Date(rawDateValue);
+    }
+    
     if (Number.isNaN(parsedDueDate.getTime())) {
       return res.status(400).json({ msg: 'Invalid task date' });
     }
@@ -91,7 +101,25 @@ exports.updateTask = async (req, res) => {
 
     // Later, we'll add a check to make sure the user owns the task
     // Không cho phép thay đổi userEmail và userId
-    const { userEmail, userId, ...updateData } = req.body;
+    const { userEmail, userId, dueDate, date, ...updateData } = req.body;
+    
+    // Xử lý date nếu có
+    if (dueDate || date) {
+      const rawDateValue = dueDate || date;
+      let parsedDueDate;
+      if (typeof rawDateValue === 'string' && rawDateValue.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Nếu là string YYYY-MM-DD, parse trực tiếp
+        const [year, month, day] = rawDateValue.split('-').map(Number);
+        parsedDueDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      } else {
+        // Nếu là Date object hoặc ISO string, parse bình thường
+        parsedDueDate = new Date(rawDateValue);
+      }
+      
+      if (!Number.isNaN(parsedDueDate.getTime())) {
+        updateData.dueDate = parsedDueDate;
+      }
+    }
     
     task = await Task.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
@@ -110,19 +138,43 @@ exports.updateTask = async (req, res) => {
 // @access  Public (for now)
 exports.deleteTask = async (req, res) => {
   try {
-    let task = await Task.findById(req.params.id);
+    const taskId = req.params.id;
+    console.log('[Backend] Delete task request received for ID:', taskId);
+
+    if (!taskId) {
+      console.error('[Backend] No task ID provided');
+      return res.status(400).json({ msg: 'Task ID is required' });
+    }
+
+    // Validate MongoDB ObjectId format
+    if (!taskId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.error('[Backend] Invalid task ID format:', taskId);
+      return res.status(400).json({ msg: 'Invalid task ID format' });
+    }
+
+    let task = await Task.findById(taskId);
+    console.log('[Backend] Task found:', task ? 'Yes' : 'No');
 
     if (!task) {
+      console.error('[Backend] Task not found with ID:', taskId);
       return res.status(404).json({ msg: 'Task not found' });
     }
 
     // Later, we'll add a check to make sure the user owns the task
 
-    await Task.findByIdAndDelete(req.params.id);
+    const deleteResult = await Task.findByIdAndDelete(taskId);
+    console.log('[Backend] Task deleted successfully:', deleteResult ? 'Yes' : 'No');
 
-    res.json({ msg: 'Task removed' });
+    if (!deleteResult) {
+      console.error('[Backend] Failed to delete task, deleteResult is null');
+      return res.status(500).json({ msg: 'Failed to delete task' });
+    }
+
+    console.log('[Backend] Sending success response');
+    res.status(200).json({ msg: 'Task removed', deletedId: taskId });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
+    console.error('[Backend] Delete task error:', err.message);
+    console.error('[Backend] Error stack:', err.stack);
+    res.status(500).json({ msg: 'Server Error', error: err.message });
   }
 };

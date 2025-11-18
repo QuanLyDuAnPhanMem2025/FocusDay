@@ -27,8 +27,13 @@ export default function AddTaskScreen() {
     if (!initialDateParam) {
       return new Date();
     }
-    // Xây Chuỗi ISO không timezone để tránh lệch ngày
-    const parsed = new Date(`${initialDateParam}T00:00:00`);
+    // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
+    const [year, month, day] = initialDateParam.split('-').map(Number);
+    if ([year, month, day].some((part) => Number.isNaN(part))) {
+      return new Date();
+    }
+    // Tạo Date object từ local time (month - 1 vì Date month bắt đầu từ 0)
+    const parsed = new Date(year, month - 1, day);
     if (Number.isNaN(parsed.getTime())) {
       return new Date();
     }
@@ -42,6 +47,14 @@ export default function AddTaskScreen() {
   const [taskType, setTaskType] = useState('work'); // 'work', 'personal', 'meeting'
   const [notes, setNotes] = useState('');
   const isWeb = Platform.OS === 'web';
+
+  // Helper function để format date thành YYYY-MM-DD từ local time
+  const formatDateToString = (dateObj) => {
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   const onDateChange = (event, selectedDate) => {
     setShowDatePicker(false);
@@ -69,7 +82,7 @@ export default function AddTaskScreen() {
 
     const newTask = {
       title: title.trim(),
-      dueDate: date.toISOString().split('T')[0], // YYYY-MM-DD
+      dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
       time: time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), // HH:mm
       type: taskType,
       notes: notes.trim(),
@@ -148,7 +161,7 @@ export default function AddTaskScreen() {
 
   const formattedDate = date.toLocaleDateString('vi-VN');
   const formattedTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-  const isoDateValue = date.toISOString().split('T')[0];
+  const isoDateValue = formatDateToString(date); // Dùng local time thay vì ISO
   const htmlTimeValue = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
 
   return (
