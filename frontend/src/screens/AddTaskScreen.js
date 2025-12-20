@@ -79,6 +79,10 @@ export default function AddTaskScreen() {
       Alert.alert('Lỗi', 'Bạn cần đăng nhập để thêm công việc.');
       return;
     }
+    if (!user._id) {
+      Alert.alert('Lỗi', 'Không lấy được userId. Vui lòng đăng nhập lại.');
+      return;
+    }
 
     const newTask = {
       title: title.trim(),
@@ -86,10 +90,7 @@ export default function AddTaskScreen() {
       time: time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), // HH:mm
       type: taskType,
       notes: notes.trim(),
-      userEmail: user.email, // Dùng userEmail thay vì userId
-      userId: user.email, // Giữ để tương thích
-      userName: user.name, // Thông tin để tự động tạo user
-      userPicture: user.picture, // Thông tin để tự động tạo user
+      userId: user._id,
       completed: false,
     };
 
@@ -240,7 +241,16 @@ export default function AddTaskScreen() {
           ) : (
             <>
               <TouchableOpacity
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  },
+                ]}
                 onPress={() => setShowDatePicker(true)}
               >
                 <Text style={{ color: colors.text }}>{formattedDate}</Text>
@@ -332,7 +342,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 8 : 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   backButton: {

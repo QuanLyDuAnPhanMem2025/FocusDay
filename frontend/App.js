@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Application from 'expo-application';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { AuthProvider } from './src/context/AuthContext';
 import HomeScreen from './src/screens/HomeScreen';
@@ -11,22 +13,28 @@ import TaskDetailScreen from './src/screens/TaskDetailScreen';
 const Stack = createNativeStackNavigator();
 
 export default function App() {
+  useEffect(() => {
+    console.log('[App][DEBUG] applicationId =', Application.applicationId);
+  }, []);
+
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <NavigationContainer>
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-            }}
-          >
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="AddTask" component={AddTaskScreen} />
-            <Stack.Screen name="EditTask" component={EditTaskScreen} />
-            <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </AuthProvider>
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeProvider>
+        <AuthProvider>
+          <NavigationContainer>
+            <Stack.Navigator
+              screenOptions={{
+                headerShown: false,
+              }}
+            >
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="AddTask" component={AddTaskScreen} />
+              <Stack.Screen name="EditTask" component={EditTaskScreen} />
+              <Stack.Screen name="TaskDetail" component={TaskDetailScreen} />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </AuthProvider>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }

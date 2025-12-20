@@ -6,14 +6,16 @@ const User = require('../models/User');
 // @access  Public (for now, will be private later)
 exports.getAllTasks = async (req, res) => {
   try {
-    const userEmail = req.query.userId || req.query.userEmail;
-    
-    if (!userEmail) {
-      return res.status(400).json({ msg: 'User email is required' });
+    const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({ msg: 'User id is required' });
+    }
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ msg: 'Invalid user id format' });
     }
 
-    // Tìm tasks theo userEmail (tương thích với cả userId cũ)
-    const tasks = await Task.find({ userEmail: userEmail.toLowerCase() });
+    const tasks = await Task.find({ userId });
     res.json(tasks);
   } catch (err) {
     console.error(err.message);
@@ -25,14 +27,14 @@ exports.getAllTasks = async (req, res) => {
 // @route   POST /api/tasks
 // @access  Public (for now)
 exports.createTask = async (req, res) => {
-  const { title, dueDate, date, time, type, notes, userId, userEmail, userName, userPicture } = req.body;
+  const { title, dueDate, date, time, type, notes, userId } = req.body;
 
   try {
-    // Lấy email từ userId hoặc userEmail
-    const email = (userEmail || userId || '').toLowerCase();
-    
-    if (!email) {
-      return res.status(400).json({ msg: 'User email is required' });
+    if (!userId) {
+      return res.status(400).json({ msg: 'User id is required' });
+    }
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ msg: 'Invalid user id format' });
     }
     if (!title?.trim()) {
       return res.status(400).json({ msg: 'Task title is required' });
@@ -58,26 +60,18 @@ exports.createTask = async (req, res) => {
       return res.status(400).json({ msg: 'Invalid task date' });
     }
 
-    // Tự động tạo hoặc lấy user
-    let user = await User.findOne({ email });
-    if (!user) {
-      user = new User({
-        email,
-        name: userName || 'User',
-        picture: userPicture || null,
-      });
-      await user.save();
+    const userExists = await User.exists({ _id: userId });
+    if (!userExists) {
+      return res.status(400).json({ msg: 'User not found' });
     }
 
-    // Tạo task với userEmail và userId reference
     const newTask = new Task({
       title: title.trim(),
       dueDate: parsedDueDate,
       time,
       type: type || 'default',
       notes, // Add notes field
-      userEmail: email,
-      userId: user._id, // Reference to User model
+      userId,
     });
 
     const task = await newTask.save();
@@ -101,7 +95,7 @@ exports.updateTask = async (req, res) => {
 
     // Later, we'll add a check to make sure the user owns the task
     // Không cho phép thay đổi userEmail và userId
-    const { userEmail, userId, dueDate, date, ...updateData } = req.body;
+    const { userId, dueDate, date, ...updateData } = req.body;
     
     // Xử lý date nếu có
     if (dueDate || date) {

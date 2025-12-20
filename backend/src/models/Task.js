@@ -27,17 +27,11 @@ const taskSchema = new mongoose.Schema({
     trim: true,
     default: '',
   },
-  // Reference to User model, but also support string email for backward compatibility
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: false, // Optional để tương thích với dữ liệu cũ
-  },
-  userEmail: {
-    type: String,
-    required: true, // Dùng email làm identifier chính
-    lowercase: true,
-    trim: true,
+    required: true,
+    index: true,
   },
 }, {
   timestamps: true, // Adds createdAt and updatedAt timestamps

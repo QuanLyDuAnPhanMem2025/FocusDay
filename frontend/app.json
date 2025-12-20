@@ -2,6 +2,7 @@
   "expo": {
     "name": "frontend",
     "slug": "frontend",
+    "owner": "dash295",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,10 +21,26 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "package": "com.focusday.app",
       "edgeToEdgeEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "webClientId": "919042538858-m6vqrgn391v70td0d3b55set1l04gas7.apps.googleusercontent.com",
+          "iosUrlScheme": "com.googleusercontent.apps.919042538858-nrd0nig1pveue7r78mesnsdo4ke85mr0"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7e3bd604-0c2e-46f4-aba8-d938c5b1a250"
+      }
     }
   }
 }

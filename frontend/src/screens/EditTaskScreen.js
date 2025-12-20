@@ -242,10 +242,20 @@ export default function EditTaskScreen() {
           ) : (
             <>
               <TouchableOpacity
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  },
+                ]}
                 onPress={() => setShowDatePicker(true)}
               >
                 <Text style={{ color: colors.text }}>{date.toLocaleDateString('vi-VN')}</Text>
+                <Ionicons name="calendar" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
               {showDatePicker && (
                 <DateTimePicker
@@ -350,7 +360,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 8 : 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   backButton: {

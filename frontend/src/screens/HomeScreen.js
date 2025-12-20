@@ -76,14 +76,18 @@ export default function HomeScreen() {
       setTasks([]);
       return;
     }
+    if (!user._id) {
+      setTasks([]);
+      return;
+    }
     setIsLoading(true);
     try {
-      // Backend đang mong đợi userId trong query params
+      // Backend đang mong đợi userId (Mongo ObjectId) trong query params
       const response = await api.get('/tasks', {
-        params: { userId: user.email },
+        params: { userId: user._id },
       });
       // MongoDB sử dụng _id, chúng ta cần map nó tới id nếu cần, hoặc dùng _id trực tiếp
-      console.log(`[HomeScreen] Fetched ${response.data.length} tasks for user: ${user.email}`);
+      console.log(`[HomeScreen] Fetched ${response.data.length} tasks for user: ${user._id}`);
       const normalizedTasks = response.data.map(normalizeTaskFromApi);
       setTasks(normalizedTasks);
     } catch (error) {
@@ -429,13 +433,13 @@ export default function HomeScreen() {
   const markedDates = {};
   tasks.forEach(task => {
     if (!markedDates[task.date]) {
-      markedDates[task.date] = { marked: true, dotColor: '#6366f1' };
+      markedDates[task.date] = { marked: true, dotColor: colors.primary };
     }
   });
   markedDates[selectedDate] = {
     ...markedDates[selectedDate],
     selected: true,
-    selectedColor: '#6366f1',
+    selectedColor: colors.primary,
   };
 
   const getTaskIcon = (type) => {
@@ -454,13 +458,13 @@ export default function HomeScreen() {
   const getTaskColor = (type) => {
     switch (type) {
       case 'meeting':
-        return '#3b82f6';
+        return '#77BEF0';
       case 'work':
         return '#10b981';
       case 'personal':
-        return '#f59e0b';
+        return '#FFDE63';
       default:
-        return '#6366f1';
+        return colors.primary;
     }
   };
 
@@ -760,11 +764,11 @@ export default function HomeScreen() {
             onPress={() => handleTaskPress(task)}
             activeOpacity={0.7}
           >
-              <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) + '20' }]}>
+              <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) }]}>
                 <Ionicons
                   name={getTaskIcon(task.type)}
                   size={20}
-                  color={getTaskColor(task.type)}
+                  color="#ffffff"
                 />
               </View>
               <View style={styles.taskContent}>
@@ -838,21 +842,6 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={colors.surface} />
-      
-      {/* Logo Header */}
-      <View style={[styles.logoHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={toggleMenu} style={styles.menuButton} activeOpacity={0.7}>
-          <Ionicons name="menu" size={28} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.logoText, { color: colors.primary, flex: 1 }]}>FocusDay</Text>
-        <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle} activeOpacity={0.7}>
-          <Ionicons 
-            name={isDarkMode ? "sunny" : "moon"} 
-            size={24} 
-            color={colors.text} 
-          />
-        </TouchableOpacity>
-      </View>
 
       {/* Menu Drawer */}
       {showMenu && (
@@ -866,14 +855,7 @@ export default function HomeScreen() {
           ]}
           pointerEvents={isMenuOpen ? 'auto' : 'none'}
         >
-        <View style={[styles.menuHeader, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity
-            style={styles.menuCloseButton}
-            onPress={closeMenu}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close" size={24} color={colors.text} />
-          </TouchableOpacity>
+        <View style={styles.menuHeader}>
           <View style={[styles.menuUserIcon, { backgroundColor: colors.primaryLight }]}>
             {user?.picture ? (
               <Image source={{ uri: user.picture }} style={styles.menuUserImage} />
@@ -885,52 +867,50 @@ export default function HomeScreen() {
           <Text style={[styles.menuUserEmail, { color: colors.textSecondary }]}>{userEmail}</Text>
         </View>
 
-        <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-
         <View style={styles.menuItems}>
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.border }]}
+            style={styles.menuItem}
             onPress={() => {
               closeMenu();
               // Navigate to profile/info
             }}
             activeOpacity={0.7}
           >
-            <View style={[styles.menuItemIcon, { backgroundColor: colors.primaryLight }]}>
-              <Ionicons name="person-outline" size={20} color={colors.primary} />
+            <View style={[styles.menuItemIcon, { backgroundColor: '#57595B' }]}>
+              <Ionicons name="person-outline" size={20} color="#ffffff" />
             </View>
             <Text style={[styles.menuItemText, { color: colors.text }]}>Thông tin cá nhân</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#ffffff' : colors.primary} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.border }]}
+            style={styles.menuItem}
             onPress={() => {
               closeMenu();
               // Navigate to settings
             }}
             activeOpacity={0.7}
           >
-            <View style={[styles.menuItemIcon, { backgroundColor: colors.blueLight }]}>
-              <Ionicons name="settings-outline" size={20} color={colors.blueIcon} />
+            <View style={[styles.menuItemIcon, { backgroundColor: '#6D94C5' }]}>
+              <Ionicons name="settings-outline" size={20} color="#ffffff" />
             </View>
             <Text style={[styles.menuItemText, { color: colors.text }]}>Cài đặt</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#ffffff' : colors.primary} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.menuItem, { borderBottomColor: colors.border }]}
+            style={styles.menuItem}
             onPress={() => {
               closeMenu();
               // Navigate to help
             }}
             activeOpacity={0.7}
           >
-            <View style={[styles.menuItemIcon, { backgroundColor: colors.yellowLight }]}>
-              <Ionicons name="help-circle-outline" size={20} color={colors.yellowIcon} />
+            <View style={[styles.menuItemIcon, { backgroundColor: '#FCB53B' }]}>
+              <Ionicons name="help-circle-outline" size={20} color="#ffffff" />
             </View>
             <Text style={[styles.menuItemText, { color: colors.text }]}>Trợ giúp</Text>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+            <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#ffffff' : colors.primary} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -946,35 +926,38 @@ export default function HomeScreen() {
               style={[
                 styles.menuItemIcon,
                 user
-                  ? { backgroundColor: isDarkMode ? '#7f1d1d' : '#fee2e2' }
-                  : { backgroundColor: colors.primaryLight },
+                  ? { backgroundColor: '#FF3838' }
+                  : { backgroundColor: '#ffffff' },
               ]}
             >
-              <Ionicons
-                name={user ? 'log-out-outline' : 'logo-google'}
-                size={20}
-                color={user ? '#ef4444' : colors.primary}
-              />
+              {user ? (
+                <Ionicons name="log-out-outline" size={20} color="#ffffff" />
+              ) : (
+                <Image
+                  source={{
+                    uri: 'https://www.google.com/images/branding/googleg/1x/googleg_standard_color_128dp.png',
+                  }}
+                  style={{ width: 20, height: 20 }}
+                  resizeMode="contain"
+                />
+              )}
             </View>
-            <View style={styles.menuAuthContent}>
-              <Text
-                style={[
-                  styles.menuItemText,
-                  user ? { color: '#ef4444' } : { color: colors.text },
-                ]}
-              >
-                {user ? 'Đăng xuất' : 'Đăng nhập Google'}
+            {user ? (
+              <Text style={[styles.menuItemText, { color: '#FF3838' }]}>
+                Đăng xuất
               </Text>
-              {!user && (
+            ) : (
+              <View style={styles.menuAuthContent}>
+                <Text style={[styles.menuItemText, { color: colors.text }]}>Đăng nhập Google</Text>
                 <Text style={[styles.menuItemHint, { color: colors.textSecondary }]}>
                   Đăng nhập để đồng bộ lịch làm việc của bạn
                 </Text>
-              )}
-            </View>
+              </View>
+            )}
             {isAuthenticating ? (
               <ActivityIndicator size="small" color={user ? '#ef4444' : colors.primary} />
             ) : (
-              <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+              <Ionicons name="chevron-forward" size={20} color={isDarkMode ? '#ffffff' : colors.primary} />
             )}
           </TouchableOpacity>
         </View>
@@ -1001,29 +984,11 @@ export default function HomeScreen() {
           />
       )}
 
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-        <View>
-          <Text style={[styles.greeting, { color: colors.text }]}>{greetingText}</Text>
-          <Text style={[styles.dateText, { color: colors.textSecondary }]}>{formatDate(selectedDate)}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          activeOpacity={0.8}
-          onPress={() =>
-            navigation.navigate('AddTask', {
-              date: selectedDate,
-            })
-          }
-        >
-          <Ionicons name="add" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
-
       <Animated.View style={[{ flex: 1 }, { opacity: fadeAnim }]}>
         <ScrollView 
           style={styles.content} 
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={[0]}
           refreshControl={
             <RefreshControl
               refreshing={isLoading}
@@ -1033,6 +998,50 @@ export default function HomeScreen() {
             />
           }
         >
+        {/* Logo Header (sticky) */}
+        <View style={[styles.logoHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+          <View style={styles.logoSideLeft}>
+            <TouchableOpacity onPress={toggleMenu} style={styles.menuButton} activeOpacity={0.7}>
+              <Ionicons name="menu" size={28} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.logoTitleContainer}>
+            <Text style={[styles.logoText, { color: isDarkMode ? colors.text : colors.primary }]} numberOfLines={1}>
+              FocusDay
+            </Text>
+          </View>
+
+          <View style={styles.logoSideRight}>
+            <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle} activeOpacity={0.7}>
+              <Ionicons
+                name={isDarkMode ? "sunny" : "moon"}
+                size={24}
+                color={colors.text}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+          <View>
+            <Text style={[styles.greeting, { color: isDarkMode ? colors.text : colors.primary }]}>{greetingText}</Text>
+            <Text style={[styles.dateText, { color: colors.textSecondary }]}>{formatDate(selectedDate)}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.addButton, { backgroundColor: colors.primary }]}
+            activeOpacity={0.8}
+            onPress={() =>
+              navigation.navigate('AddTask', {
+                date: selectedDate,
+              })
+            }
+          >
+            <Ionicons name="add" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
         {/* View Mode Selector */}
         <View style={[styles.viewModeContainer, { backgroundColor: colors.surface }]}>
           <TouchableOpacity
@@ -1082,8 +1091,8 @@ export default function HomeScreen() {
         {getFilteredTasks().length > 0 && (
           <View style={[styles.statsContainer, { backgroundColor: colors.surface }]}>
             <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: colors.greenLight }]}>
-                <Ionicons name="checkmark-circle" size={20} color={colors.greenIcon} />
+              <View style={[styles.statIcon, { backgroundColor: '#78C841' }]}>
+                <Ionicons name="checkmark-circle" size={20} color="#ffffff" />
               </View>
               <View style={styles.statContent}>
                 <Text style={[styles.statValue, { color: colors.text }]}>
@@ -1094,8 +1103,8 @@ export default function HomeScreen() {
             </View>
             <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
             <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: colors.blueLight }]}>
-                <Ionicons name="time" size={20} color={colors.blueIcon} />
+              <View style={[styles.statIcon, { backgroundColor: '#113F67' }]}>
+                <Ionicons name="time" size={20} color="#ffffff" />
               </View>
               <View style={styles.statContent}>
                 <Text style={[styles.statValue, { color: colors.text }]}>
@@ -1106,8 +1115,8 @@ export default function HomeScreen() {
             </View>
             <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
             <View style={styles.statItem}>
-              <View style={[styles.statIcon, { backgroundColor: colors.yellowLight }]}>
-                <Ionicons name="hourglass" size={20} color={colors.yellowIcon} />
+              <View style={[styles.statIcon, { backgroundColor: '#E37434' }]}>
+                <Ionicons name="hourglass" size={20} color="#ffffff" />
               </View>
               <View style={styles.statContent}>
                 <Text style={[styles.statValue, { color: colors.text }]}>
@@ -1144,7 +1153,7 @@ export default function HomeScreen() {
         >
           <View style={styles.aiCardContent}>
             <View style={[styles.aiIcon, { backgroundColor: colors.primaryLight }]}>
-              <Ionicons name="sparkles" size={24} color={colors.primary} />
+              <Ionicons name="sparkles" size={24} color={isDarkMode ? '#ffffff' : colors.primary} />
             </View>
             <View style={styles.aiText}>
               <Text style={[styles.aiTitle, { color: colors.text }]}>Tối ưu hóa lịch với AI</Text>
@@ -1424,13 +1433,42 @@ const styles = StyleSheet.create({
   logoHeader: {
     backgroundColor: '#ffffff',
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 8 : 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    zIndex: 10,
+    elevation: 10,
+    position: 'relative',
+    flexWrap: 'nowrap',
+  },
+  logoTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 60,
+    minWidth: 0,
+  },
+  logoSideLeft: {
+    width: 52,
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    bottom: 0,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  logoSideRight: {
+    width: 52,
+    position: 'absolute',
+    right: 20,
+    top: 0,
+    bottom: 0,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   logoContainer: {
     flexDirection: 'row',
@@ -1443,7 +1481,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   themeToggle: {
     width: 40,
@@ -1487,7 +1524,6 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
     paddingHorizontal: 20,
     alignItems: 'center',
-    borderBottomWidth: 1,
     position: 'relative',
   },
   menuCloseButton: {
@@ -1524,10 +1560,6 @@ const styles = StyleSheet.create({
   menuUserEmail: {
     fontSize: 14,
   },
-  menuDivider: {
-    height: 1,
-    marginVertical: 8,
-  },
   menuItems: {
     paddingTop: 8,
   },
@@ -1536,7 +1568,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
   },
   menuAuthItem: {
     alignItems: 'center',
@@ -1557,6 +1588,7 @@ const styles = StyleSheet.create({
   menuAuthContent: {
     flex: 1,
     marginRight: 8,
+    justifyContent: 'center',
   },
   menuItemHint: {
     fontSize: 12,
@@ -1576,6 +1608,17 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#6366f1',
     letterSpacing: 0.5,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  logoTextCenter: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    fontSize: 24,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+    textAlign: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -1603,7 +1646,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#6366f1',
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 2,
@@ -1625,24 +1667,18 @@ const styles = StyleSheet.create({
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
   },
   viewModeButton: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  viewModeButtonActive: {
-    backgroundColor: '#6366f1',
+    marginHorizontal: 2,
   },
   viewModeText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#6b7280',
   },
   viewModeTextActive: {
     color: '#ffffff',

@@ -64,13 +64,13 @@ export default function TaskDetailScreen() {
   const getTaskColor = (type) => {
     switch (type) {
       case 'meeting':
-        return '#3b82f6';
+        return '#77BEF0';
       case 'work':
         return '#10b981';
       case 'personal':
-        return '#f59e0b';
+        return '#FFDE63';
       default:
-        return '#6366f1';
+        return colors.primary;
     }
   };
 
@@ -280,8 +280,8 @@ export default function TaskDetailScreen() {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Task Icon & Title */}
         <View style={[styles.taskHeader, { backgroundColor: colors.surface }]}>
-          <View style={[styles.taskIconContainer, { backgroundColor: taskColor + '20' }]}>
-            <Ionicons name={getTaskIcon(task.type)} size={32} color={taskColor} />
+          <View style={[styles.taskIconContainer, { backgroundColor: taskColor }]}>
+            <Ionicons name={getTaskIcon(task.type)} size={32} color="#ffffff" />
           </View>
           <Text style={[styles.taskTitle, { color: colors.text }]}>{task.title}</Text>
           {task.completed && (
@@ -295,8 +295,8 @@ export default function TaskDetailScreen() {
         {/* Task Info */}
         <View style={[styles.infoSection, { backgroundColor: colors.surface }]}>
           <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
-            <View style={[styles.infoIcon, { backgroundColor: colors.primaryLight }]}>
-              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+            <View style={[styles.infoIcon, { backgroundColor: '#90AB8B' }]}>
+              <Ionicons name="calendar-outline" size={20} color="#ffffff" />
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Ngày</Text>
@@ -305,8 +305,8 @@ export default function TaskDetailScreen() {
           </View>
 
           <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
-            <View style={[styles.infoIcon, { backgroundColor: colors.blueLight }]}>
-              <Ionicons name="time-outline" size={20} color={colors.blueIcon} />
+            <View style={[styles.infoIcon, { backgroundColor: '#94B4C1' }]}>
+              <Ionicons name="time-outline" size={20} color="#ffffff" />
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Giờ</Text>
@@ -315,8 +315,8 @@ export default function TaskDetailScreen() {
           </View>
 
           <View style={styles.infoItem}>
-            <View style={[styles.infoIcon, { backgroundColor: taskColor + '20' }]}>
-              <Ionicons name={getTaskIcon(task.type)} size={20} color={taskColor} />
+            <View style={[styles.infoIcon, { backgroundColor: taskColor }]}>
+              <Ionicons name={getTaskIcon(task.type)} size={20} color="#ffffff" />
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Loại</Text>
@@ -329,8 +329,8 @@ export default function TaskDetailScreen() {
         {task.notes && (
           <View style={[styles.infoSection, { backgroundColor: colors.surface, marginTop: 16 }]}>
             <View style={styles.infoItem}>
-              <View style={[styles.infoIcon, { backgroundColor: colors.yellowLight }]}>
-                <Feather name="file-text" size={20} color={colors.yellowIcon} />
+              <View style={[styles.infoIcon, { backgroundColor: '#E49BA6' }]}>
+                <Feather name="file-text" size={20} color="#ffffff" />
               </View>
               <View style={styles.infoContent}>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Ghi chú</Text>
@@ -346,7 +346,6 @@ export default function TaskDetailScreen() {
             style={[styles.actionButton, { backgroundColor: colors.primary }]}
             onPress={handleEdit}
           >
-            <Feather name="edit" size={20} color="#fff" />
             <Text style={styles.actionButtonText}>Chỉnh sửa</Text>
           </TouchableOpacity>
 
@@ -358,10 +357,7 @@ export default function TaskDetailScreen() {
             {isDeleting ? (
               <Text style={styles.actionButtonText}>Đang xóa...</Text>
             ) : (
-              <>
-                <Feather name="trash-2" size={20} color="#fff" />
-                <Text style={styles.actionButtonText}>Xóa</Text>
-              </>
+              <Text style={styles.actionButtonText}>Xóa</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -394,7 +390,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 8 : 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
   },
   backButton: {
@@ -475,7 +472,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
   },
   infoIcon: {
     width: 40,

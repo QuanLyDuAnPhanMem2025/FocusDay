@@ -13,22 +13,22 @@ export const ThemeProvider = ({ children }) => {
     isDarkMode,
     toggleTheme,
     colors: {
-      background: isDarkMode ? '#111827' : '#f9fafb',
-      surface: isDarkMode ? '#1f2937' : '#ffffff',
-      text: isDarkMode ? '#f9fafb' : '#1f2937',
-      textSecondary: isDarkMode ? '#9ca3af' : '#6b7280',
-      textTertiary: isDarkMode ? '#6b7280' : '#9ca3af',
-      border: isDarkMode ? '#374151' : '#e5e7eb',
-      primary: '#6366f1',
-      primaryLight: isDarkMode ? '#312e81' : '#eef2ff', // Màu tím nhạt hơn cho dark mode
+      background: isDarkMode ? '#141b23' : '#f9fafb',
+      surface: isDarkMode ? '#1f2a35' : '#ffffff',
+      text: isDarkMode ? '#f3f4f6' : '#1f2937',
+      textSecondary: isDarkMode ? '#b4c0cc' : '#6b7280',
+      textTertiary: isDarkMode ? '#7f8c98' : '#9ca3af',
+      border: isDarkMode ? '#2b3a46' : '#e5e7eb',
+      primary: '#435663',
+      primaryLight: isDarkMode ? '#2b3a46' : '#e9eef1', // Màu tím nhạt hơn cho dark mode
       cardBackground: isDarkMode ? '#1f2937' : '#ffffff',
       emptyIcon: isDarkMode ? '#374151' : '#d1d5db',
       // Màu cho stats icons
-      greenLight: isDarkMode ? '#064e3b' : '#d1fae5', // Xanh lá nhạt
+      greenLight: isDarkMode ? '#0b3b33' : '#d1fae5', // Xanh lá nhạt
       greenIcon: '#10b981', // Xanh lá đậm
-      blueLight: isDarkMode ? '#1e3a5f' : '#e0f2fe',
+      blueLight: isDarkMode ? '#193347' : '#e0f2fe',
       blueIcon: '#0ea5e9',
-      yellowLight: isDarkMode ? '#78350f' : '#fef3c7',
+      yellowLight: isDarkMode ? '#4a3112' : '#fef3c7',
       yellowIcon: '#f59e0b',
     },
   };
