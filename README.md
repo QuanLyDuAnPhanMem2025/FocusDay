@@ -1,85 +1,83 @@
 # FocusDay - Ứng dụng Quản lý Công việc
 
-Ứng dụng quản lý công việc và lịch trình với React Native và Node.js.
+Ứng dụng quản lý công việc và lịch trình cá nhân với React Native (Expo) và Node.js (Express) + MongoDB.
 
-## 🚀 Tính năng
+## Tính năng
 
-- ✅ Quản lý công việc theo ngày/tuần/tháng
-- 📅 Lịch tương tác với đánh dấu ngày có công việc
-- 🌓 Dark/Light mode
-- 🔐 Đăng nhập Google OAuth
-- 📊 Thống kê công việc (hoàn thành/tổng cộng/còn lại)
-- 🎨 UI/UX hiện đại với animations mượt mà
-- 📱 Hỗ trợ đa nền tảng (iOS, Android, Web)
+- Quản lý công việc theo ngày/tuần/tháng
+- Lịch tương tác với đánh dấu ngày có công việc
+- Dark/Light mode
+- Đăng nhập Google OAuth
+- Thống kê công việc (hoàn thành/tổng cộng/còn lại)
+- Hỗ trợ đa nền tảng (Android, iOS, Web)
 
-## 📋 Yêu cầu
+## Yêu cầu
 
-- Node.js >= 14.x
-- MongoDB
-- Expo CLI (cho frontend)
+- Node.js (khuyến nghị >= 18)
+- MongoDB (local hoặc MongoDB Atlas)
+- Expo CLI (được cài kèm khi dùng `npx expo`)
 - Google OAuth credentials (cho đăng nhập)
 
-## 🛠️ Cài đặt
+## Cài đặt
 
 ### Backend
 
-1. Di chuyển vào thư mục backend:
+1. Cài đặt dependencies:
 ```bash
 cd backend
-```
-
-2. Cài đặt dependencies:
-```bash
 npm install
 ```
 
-3. Tạo file `.env` trong thư mục `backend`:
+2. Tạo file `.env` trong thư mục `backend`:
 ```env
 MONGO_URL=mongodb://localhost:27017/focusday
-PORT=5000
+PORT=4000
 ```
 
-4. Khởi chạy server:
+Lưu ý: Không commit file `.env` lên Git.
+
+3. Khởi chạy server:
 ```bash
 npm run dev
 ```
 
-Server sẽ chạy tại `http://localhost:5000`
+Server sẽ chạy tại `http://localhost:4000`
 
 ### Frontend
 
-1. Di chuyển vào thư mục frontend:
+1. Cài đặt dependencies:
 ```bash
 cd frontend
-```
-
-2. Cài đặt dependencies:
-```bash
 npm install
 ```
 
-3. Tạo file `.env` trong thư mục `frontend` (nếu cần Google OAuth):
+2. Tạo file `.env` trong thư mục `frontend`:
 ```env
-EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID=your-expo-client-id
-EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=your-ios-client-id
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=your-android-client-id
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=your-web-client-id
+EXPO_PUBLIC_API_PORT=4000
 ```
 
-4. Khởi chạy ứng dụng:
+Lưu ý: Không commit file `.env` lên Git.
+
+3. Khởi chạy ứng dụng:
 ```bash
 npm start
 ```
 
-## 📱 Sử dụng
+Mẹo:
+- Android Emulator: đảm bảo backend chạy với port trùng `EXPO_PUBLIC_API_PORT`. Ứng dụng sẽ tự dùng `10.0.2.2` để gọi về máy host.
+- Thiết bị thật: cần cấu hình `EXPO_PUBLIC_API_URL` (trong `.env` của frontend) trỏ tới IP LAN của máy chạy backend.
 
-1. **Đăng nhập**: Nhấn vào menu (☰) và chọn "Đăng nhập Google" để đăng nhập
-2. **Thêm công việc**: Nhấn nút (+) ở góc trên bên phải
-3. **Xem công việc**: Chọn chế độ xem (Ngày/Tuần/Tháng) và chọn ngày trên lịch
-4. **Hoàn thành công việc**: Nhấn vào checkbox hoặc công việc để đánh dấu hoàn thành
-5. **Đổi theme**: Nhấn vào icon mặt trăng/mặt trời ở header
+## Sử dụng
 
-## 🏗️ Cấu trúc dự án
+1. Đăng nhập: mở menu và chọn "Đăng nhập Google"
+2. Thêm công việc: nhấn nút thêm
+3. Xem công việc: chọn chế độ xem (Ngày/Tuần/Tháng) và chọn ngày trên lịch
+4. Hoàn thành công việc: đánh dấu hoàn thành và theo dõi thống kê
+5. Đổi theme: chuyển Light/Dark mode
+
+## Cấu trúc dự án
 
 ```
 FocusDay/
@@ -92,7 +90,8 @@ FocusDay/
 │   │   ├── models/
 │   │   │   └── Task.js        # Schema Task
 │   │   ├── routes/
-│   │   │   └── tasks.js       # API routes
+│   │   │   ├── tasks.js       # API routes
+│   │   │   └── users.js       # API routes
 │   │   └── index.js          # Entry point
 │   └── package.json
 │
@@ -109,26 +108,25 @@ FocusDay/
     └── package.json
 ```
 
-## 🔌 API Endpoints
+## API Endpoints
 
 - `GET /api/tasks?userId=xxx` - Lấy danh sách tasks
 - `POST /api/tasks` - Tạo task mới
 - `PUT /api/tasks/:id` - Cập nhật task
 - `DELETE /api/tasks/:id` - Xóa task
 
-## 📝 Ghi chú
+## Ghi chú
 
-- Backend API hiện đang sử dụng `userId` từ query params/body. Trong tương lai sẽ được thay thế bằng JWT authentication.
-- Frontend sử dụng `user.email` làm `userId` tạm thời.
-- Để chạy trên thiết bị thật, cần thay đổi `API_URL` trong `frontend/src/api/axios.js` thành IP của máy tính.
+- Backend API hiện đang lọc dữ liệu theo thông tin user truyền từ client.
+- Để chạy trên thiết bị thật, nên đặt `EXPO_PUBLIC_API_URL` trong `.env` của frontend để trỏ tới IP LAN của máy chạy backend.
 
-## 🐛 Xử lý lỗi
+## Xử lý lỗi
 
 - Nếu MongoDB không kết nối được, kiểm tra `MONGO_URL` trong file `.env`
 - Nếu API không hoạt động, kiểm tra port và địa chỉ IP trong `axios.js`
 - Nếu Google OAuth không hoạt động, kiểm tra các biến môi trường `EXPO_PUBLIC_GOOGLE_*`
 
-## 📄 License
+## License
 
 MIT
 
