@@ -258,7 +258,7 @@ export default function HomeScreen() {
 
     const upcoming = tasks
       .filter((task) => Boolean(task.date) && !task.completed && task.date > selectedDate)
-      .sort((a, b) => a.date.localeCompare(b.date))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
       .slice(0, 3)
       .map((task) => {
         // Parse date string đúng cách để tránh timezone issues
@@ -731,7 +731,7 @@ export default function HomeScreen() {
     }
 
     return filteredTasks
-      .sort((a, b) => a.time.localeCompare(b.time))
+      .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
       .map((task) => {
         const renderRightActions = (progress, dragX) => {
           const scale = dragX.interpolate({
@@ -794,8 +794,13 @@ export default function HomeScreen() {
                     </Text>
                   )}
                   <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
-                    <Ionicons name="time-outline" size={14} color={colors.textSecondary} /> {task.time}
+                    <Ionicons name="time-outline" size={14} color={colors.textSecondary} /> {task.time || 'Linh hoạt'}
                   </Text>
+                  {task.durationMinutes && (
+                    <Text style={[styles.taskDuration, { color: colors.textSecondary, marginLeft: 5 }]}>
+                      {task.allDay ? 'Cả ngày' : `${task.durationMinutes} phút`}
+                    </Text>
+                  )}
                 </View>
               </View>
               <TouchableOpacity
@@ -1827,6 +1832,12 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   taskTime: {
+    fontSize: 13,
+    color: '#6b7280',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskDuration: {
     fontSize: 13,
     color: '#6b7280',
     flexDirection: 'row',

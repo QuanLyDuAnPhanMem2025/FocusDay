@@ -10,8 +10,29 @@ const taskSchema = new mongoose.Schema({
     type: Date, // Changed from String to Date for better date management
     required: true,
   },
+  allDay: {
+    type: Boolean,
+    default: false,
+  },
   time: {
-    type: String, // Storing as HH:mm
+    type: String, // Storing as HH:mm, optional for flexible tasks
+  },
+  durationMinutes: {
+    type: Number,
+    min: 5,
+    max: 24 * 60,
+    default: 30,
+  },
+  priority: {
+    type: Number,
+    min: 1,
+    max: 5,
+    default: 3,
+  },
+  effort: {
+    type: String,
+    enum: ['low', 'medium', 'high'],
+    default: 'medium',
   },
   type: {
     type: String,

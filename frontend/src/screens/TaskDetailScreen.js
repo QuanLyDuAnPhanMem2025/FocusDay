@@ -25,20 +25,20 @@ export default function TaskDetailScreen() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const deleteInProgressRef = useRef(false);
+  const [currentTask, setCurrentTask] = useState(task);
 
-  // Debug: Log task info
   useEffect(() => {
-    if (task) {
-      console.log('[TaskDetailScreen] Task loaded:', {
-        _id: task._id,
-        id: task.id,
-        title: task.title,
-        hasOnTaskDeleted: !!onTaskDeleted,
-      });
-    }
-  }, [task, onTaskDeleted]);
+    setCurrentTask(task);
+  }, [task]);
 
-  if (!task) {
+  const handleTaskUpdated = (updatedTask) => {
+    setCurrentTask(updatedTask);
+    if (onTaskUpdated) {
+      onTaskUpdated(updatedTask);
+    }
+  };
+
+  if (!currentTask) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.errorContainer}>
@@ -89,13 +89,21 @@ export default function TaskDetailScreen() {
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
+    
     // Nếu dateString là Date object, convert sang string
     let dateStr = typeof dateString === 'string' ? dateString : dateString.toISOString().split('T')[0];
+    
+    // Nếu là ISO string (có T), lấy phần YYYY-MM-DD
+    if (dateStr.includes('T')) {
+      dateStr = dateStr.split('T')[0];
+    }
+    
     // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
     const [year, month, day] = dateStr.split('-').map(Number);
     if ([year, month, day].some((part) => Number.isNaN(part))) {
       return '';
     }
+    
     // Tạo Date object từ local time (month - 1 vì Date month bắt đầu từ 0)
     const date = new Date(year, month - 1, day);
     return date.toLocaleDateString('vi-VN', {
@@ -107,7 +115,7 @@ export default function TaskDetailScreen() {
   };
 
   const handleEdit = () => {
-    navigation.navigate('EditTask', { task, onTaskUpdated });
+    navigation.navigate('EditTask', { task: currentTask, onTaskUpdated: handleTaskUpdated });
   };
 
   const performDelete = async (taskId) => {
@@ -205,10 +213,10 @@ export default function TaskDetailScreen() {
       return;
     }
 
-    // Kiểm tra task._id hoặc task.id trước khi xóa
-    const taskId = task._id || task.id;
+    // Kiểm tra currentTask._id hoặc currentTask.id trước khi xóa
+    const taskId = currentTask._id || currentTask.id;
     if (!taskId) {
-      console.error('[TaskDetailScreen] No task ID found:', task);
+      console.error('[TaskDetailScreen] No task ID found:', currentTask);
       if (Platform.OS === 'web') {
         window.alert('Lỗi: Không tìm thấy ID của công việc. Vui lòng thử lại.');
       } else {
@@ -254,7 +262,7 @@ export default function TaskDetailScreen() {
   };
 
   const handleConfirmDelete = () => {
-    const taskId = task._id || task.id;
+    const taskId = currentTask._id || currentTask.id;
     setShowDeleteConfirm(false);
     console.log('[TaskDetailScreen] Delete confirmed, calling performDelete with taskId:', taskId);
     performDelete(taskId).catch((err) => {
@@ -262,7 +270,7 @@ export default function TaskDetailScreen() {
     });
   };
 
-  const taskColor = getTaskColor(task.type);
+  const taskColor = getTaskColor(currentTask.type);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -281,10 +289,10 @@ export default function TaskDetailScreen() {
         {/* Task Icon & Title */}
         <View style={[styles.taskHeader, { backgroundColor: colors.surface }]}>
           <View style={[styles.taskIconContainer, { backgroundColor: taskColor }]}>
-            <Ionicons name={getTaskIcon(task.type)} size={32} color="#ffffff" />
+            <Ionicons name={getTaskIcon(currentTask.type)} size={32} color="#ffffff" />
           </View>
-          <Text style={[styles.taskTitle, { color: colors.text }]}>{task.title}</Text>
-          {task.completed && (
+          <Text style={[styles.taskTitle, { color: colors.text }]}>{currentTask.title}</Text>
+          {currentTask.completed && (
             <View style={[styles.completedBadge, { backgroundColor: colors.greenLight }]}>
               <Ionicons name="checkmark-circle" size={16} color={colors.greenIcon} />
               <Text style={[styles.completedText, { color: colors.greenIcon }]}>Đã hoàn thành</Text>
@@ -300,7 +308,7 @@ export default function TaskDetailScreen() {
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Ngày</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{formatDate(task.date)}</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>{formatDate(currentTask.dueDate || currentTask.date)}</Text>
             </View>
           </View>
 
@@ -310,23 +318,35 @@ export default function TaskDetailScreen() {
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Giờ</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{task.time}</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>{currentTask.time || 'Linh hoạt'}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
+            <View style={[styles.infoIcon, { backgroundColor: '#F59E0B' }]}>
+              <Ionicons name="hourglass-outline" size={20} color="#ffffff" />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Thời lượng</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>
+                {currentTask.allDay ? 'Cả ngày' : `${currentTask.durationMinutes || 30} phút`}
+              </Text>
             </View>
           </View>
 
           <View style={styles.infoItem}>
             <View style={[styles.infoIcon, { backgroundColor: taskColor }]}>
-              <Ionicons name={getTaskIcon(task.type)} size={20} color="#ffffff" />
+              <Ionicons name={getTaskIcon(currentTask.type)} size={20} color="#ffffff" />
             </View>
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Loại</Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>{getTaskTypeName(task.type)}</Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>{getTaskTypeName(currentTask.type)}</Text>
             </View>
           </View>
         </View>
 
         {/* Notes */}
-        {task.notes && (
+        {currentTask.notes && (
           <View style={[styles.infoSection, { backgroundColor: colors.surface, marginTop: 16 }]}>
             <View style={styles.infoItem}>
               <View style={[styles.infoIcon, { backgroundColor: '#E49BA6' }]}>
@@ -334,7 +354,7 @@ export default function TaskDetailScreen() {
               </View>
               <View style={styles.infoContent}>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Ghi chú</Text>
-                <Text style={[styles.infoValue, { color: colors.text, lineHeight: 22 }]}>{task.notes}</Text>
+                <Text style={[styles.infoValue, { color: colors.text, lineHeight: 22 }]}>{currentTask.notes}</Text>
               </View>
             </View>
           </View>

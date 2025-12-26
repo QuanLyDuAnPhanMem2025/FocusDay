@@ -4,11 +4,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Switch,
   StyleSheet,
   SafeAreaView,
   StatusBar,
   Platform,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -22,6 +24,7 @@ export default function AddTaskScreen() {
   const route = useRoute();
   const { colors, isDarkMode } = useTheme();
   const { user } = useAuth();
+
   const initialDateParam = route.params?.date;
   const getInitialDate = () => {
     if (!initialDateParam) {
@@ -42,6 +45,9 @@ export default function AddTaskScreen() {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(getInitialDate);
   const [time, setTime] = useState(new Date());
+  const [allDay, setAllDay] = useState(false);
+  const [durationMinutes, setDurationMinutes] = useState('30');
+  const [hasFixedTime, setHasFixedTime] = useState(true);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [taskType, setTaskType] = useState('work'); // 'work', 'personal', 'meeting'
@@ -75,6 +81,7 @@ export default function AddTaskScreen() {
       Alert.alert('Lỗi', 'Vui lòng nhập tiêu đề công việc.');
       return;
     }
+
     if (!user) {
       Alert.alert('Lỗi', 'Bạn cần đăng nhập để thêm công việc.');
       return;
@@ -84,10 +91,22 @@ export default function AddTaskScreen() {
       return;
     }
 
+    const parsedDuration = Number(durationMinutes);
+    if (!allDay && durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
+      Alert.alert('Lỗi', 'Thời lượng phải là số phút hợp lệ.');
+      return;
+    }
+
+    const timeValue = allDay
+      ? '00:00'
+      : hasFixedTime ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null;
+
     const newTask = {
       title: title.trim(),
       dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
-      time: time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), // HH:mm
+      allDay,
+      time: timeValue, // HH:mm or null for flexible tasks
+      durationMinutes: allDay ? (24 * 60) : (durationMinutes ? parsedDuration : undefined),
       type: taskType,
       notes: notes.trim(),
       userId: user._id,
@@ -102,7 +121,7 @@ export default function AddTaskScreen() {
       console.error('Add task error:', error.response?.data || error.message);
       console.error('Full error:', error);
       Alert.alert(
-        'Lỗi', 
+        'Lỗi',
         `Không thể thêm công việc: ${error.response?.data?.msg || error.message || 'Vui lòng thử lại.'}`
       );
     }
@@ -160,6 +179,15 @@ export default function AddTaskScreen() {
     setTime(updatedTime);
   };
 
+  const formatDateTimeLocalValue = (dateObj) => {
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const hours = String(dateObj.getHours()).padStart(2, '0');
+    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   const formattedDate = date.toLocaleDateString('vi-VN');
   const formattedTime = time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   const isoDateValue = formatDateToString(date); // Dùng local time thay vì ISO
@@ -178,7 +206,7 @@ export default function AddTaskScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={styles.form}>
+      <ScrollView style={styles.form} showsVerticalScrollIndicator={false}>
         {/* Task Title */}
         <View style={styles.inputGroup}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>Task Title</Text>
@@ -268,48 +296,91 @@ export default function AddTaskScreen() {
           )}
         </View>
 
-        {/* Time Picker */}
+        {/* All day */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Time</Text>
-          {isWeb ? (
-            <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <input
-                type="time"
-                value={htmlTimeValue}
-                onChange={handleWebTimeInputChange}
-                style={{
-                  flex: 1,
-                  height: '100%',
-                  border: 'none',
-                  outline: 'none',
-                  backgroundColor: 'transparent',
-                  color: colors.text,
-                  fontSize: 16,
-                  paddingLeft: 16,
-                  paddingRight: 16,
-                }}
-              />
-            </View>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
-                onPress={() => setShowTimePicker(true)}
-              >
-                <Text style={{ color: colors.text }}>{formattedTime}</Text>
-              </TouchableOpacity>
-              {showTimePicker && (
-                <DateTimePicker
-                  testID="timePicker"
-                  value={time}
-                  mode="time"
-                  display="default"
-                  onChange={onTimeChange}
-                />
-              )}
-            </>
-          )}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Cả ngày</Text>
+            <Switch
+              value={allDay}
+              onValueChange={(value) => {
+                setAllDay(value);
+                if (value) {
+                  setHasFixedTime(false);
+                }
+              }}
+            />
+          </View>
         </View>
+
+        {/* Fixed Time Toggle */}
+        {!allDay && (
+          <View style={styles.inputGroup}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
+              <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
+            </View>
+          </View>
+        )}
+
+        {/* Time Picker */}
+        {!allDay && hasFixedTime ? (
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Time</Text>
+            {isWeb ? (
+              <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <input
+                  type="time"
+                  value={htmlTimeValue}
+                  onChange={handleWebTimeInputChange}
+                  style={{
+                    flex: 1,
+                    height: '100%',
+                    border: 'none',
+                    outline: 'none',
+                    backgroundColor: 'transparent',
+                    color: colors.text,
+                    fontSize: 16,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                  }}
+                />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={{ color: colors.text }}>{formattedTime}</Text>
+                </TouchableOpacity>
+                {showTimePicker && (
+                  <DateTimePicker
+                    testID="timePicker"
+                    value={time}
+                    mode="time"
+                    display="default"
+                    onChange={onTimeChange}
+                  />
+                )}
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {/* Duration */}
+        {!allDay ? (
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Duration (minutes)</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+              value={durationMinutes}
+              onChangeText={setDurationMinutes}
+              placeholder="30"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+            />
+          </View>
+        ) : null}
 
         {/* Notes */}
         <View style={styles.inputGroup}>
@@ -328,7 +399,8 @@ export default function AddTaskScreen() {
         <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.primary }]} onPress={handleAddTask}>
           <Text style={styles.addButtonText}>Add Task</Text>
         </TouchableOpacity>
-      </View>
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }

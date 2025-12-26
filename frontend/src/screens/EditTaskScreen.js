@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Switch,
   StyleSheet,
   SafeAreaView,
   StatusBar,
@@ -26,7 +27,28 @@ export default function EditTaskScreen() {
   const { task, onTaskUpdated } = route.params || {};
 
   const [title, setTitle] = useState(task?.title || '');
-  const [date, setDate] = useState(task ? new Date(task.date) : new Date());
+  const [date, setDate] = useState(() => {
+    if (task) {
+      // Use dueDate first, fallback to date
+      const dateSource = task.dueDate || task.date;
+      if (dateSource) {
+        // If it's an ISO string, parse it
+        if (typeof dateSource === 'string' && dateSource.includes('T')) {
+          return new Date(dateSource);
+        }
+        // If it's YYYY-MM-DD string, parse it
+        if (typeof dateSource === 'string' && dateSource.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          const [year, month, day] = dateSource.split('-').map(Number);
+          return new Date(year, month - 1, day);
+        }
+        // If it's already a Date object
+        if (dateSource instanceof Date) {
+          return dateSource;
+        }
+      }
+    }
+    return new Date();
+  });
   const [time, setTime] = useState(() => {
     if (task?.time) {
       const [hours, minutes] = task.time.split(':');
@@ -36,10 +58,17 @@ export default function EditTaskScreen() {
     }
     return new Date();
   });
+  const [allDay, setAllDay] = useState(Boolean(task?.allDay));
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [taskType, setTaskType] = useState(task?.type || 'work');
   const [notes, setNotes] = useState(task?.notes || '');
+  const [hasFixedTime, setHasFixedTime] = useState(Boolean(task?.time));
+  const [durationMinutes, setDurationMinutes] = useState(
+    task?.durationMinutes !== undefined && task?.durationMinutes !== null
+      ? String(task.durationMinutes)
+      : '30'
+  );
   const [isSaving, setIsSaving] = useState(false);
   const isWeb = Platform.OS === 'web';
 
@@ -48,6 +77,14 @@ export default function EditTaskScreen() {
       setTitle(task.title || '');
       setTaskType(task.type || 'work');
       setNotes(task.notes || '');
+      setAllDay(Boolean(task.allDay));
+      setHasFixedTime(Boolean(task.time));
+      setDurationMinutes(
+        task?.durationMinutes !== undefined && task?.durationMinutes !== null
+          ? String(task.durationMinutes)
+          : '30'
+      );
+
       if (task.date) {
         // Parse date string (YYYY-MM-DD) thành year, month, day để tránh timezone issues
         let dateStr = typeof task.date === 'string' ? task.date : task.date.toISOString().split('T')[0];
@@ -85,6 +122,7 @@ export default function EditTaskScreen() {
       Alert.alert('Lỗi', 'Vui lòng nhập tiêu đề công việc.');
       return;
     }
+
     if (!user) {
       Alert.alert('Lỗi', 'Bạn cần đăng nhập để chỉnh sửa công việc.');
       return;
@@ -104,10 +142,23 @@ export default function EditTaskScreen() {
       return `${year}-${month}-${day}`;
     };
 
+    const parsedDuration = Number(durationMinutes);
+    if (!allDay && durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
+      Alert.alert('Lỗi', 'Thời lượng phải là số phút hợp lệ.');
+      setIsSaving(false);
+      return;
+    }
+
+    const timeValue = allDay
+      ? '00:00'
+      : hasFixedTime ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null;
+
     const updatedTask = {
       title: title.trim(),
       dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
-      time: time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }), // HH:mm
+      allDay,
+      time: timeValue, // HH:mm or null for flexible tasks
+      durationMinutes: allDay ? (24 * 60) : (durationMinutes ? parsedDuration : undefined),
       type: taskType,
       notes: notes.trim(),
     };
@@ -270,58 +321,101 @@ export default function EditTaskScreen() {
           )}
         </View>
 
-        {/* Time Picker */}
+        {/* All day */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Giờ</Text>
-          {isWeb ? (
-            <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <input
-                type="time"
-                value={`${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`}
-                onChange={(event) => {
-                  const value = event?.target?.value;
-                  if (!value) return;
-                  const [hours, minutes] = value.split(':').map(Number);
-                  if (![hours, minutes].some((part) => Number.isNaN(part))) {
-                    const updatedTime = new Date(time);
-                    updatedTime.setHours(hours);
-                    updatedTime.setMinutes(minutes);
-                    setTime(updatedTime);
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  height: '100%',
-                  border: 'none',
-                  outline: 'none',
-                  backgroundColor: 'transparent',
-                  color: colors.text,
-                  fontSize: 16,
-                  paddingLeft: 16,
-                  paddingRight: 16,
-                }}
-              />
-            </View>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
-                onPress={() => setShowTimePicker(true)}
-              >
-                <Text style={{ color: colors.text }}>{time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
-              </TouchableOpacity>
-              {showTimePicker && (
-                <DateTimePicker
-                  testID="timePicker"
-                  value={time}
-                  mode="time"
-                  display="default"
-                  onChange={onTimeChange}
-                />
-              )}
-            </>
-          )}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Cả ngày</Text>
+            <Switch
+              value={allDay}
+              onValueChange={(value) => {
+                setAllDay(value);
+                if (value) {
+                  setHasFixedTime(false);
+                }
+              }}
+            />
+          </View>
         </View>
+
+        {/* Fixed Time Toggle */}
+        {!allDay && (
+          <View style={styles.inputGroup}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
+              <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
+            </View>
+          </View>
+        )}
+
+        {/* Time Picker */}
+        {!allDay && hasFixedTime ? (
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Giờ</Text>
+            {isWeb ? (
+              <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <input
+                  type="time"
+                  value={`${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`}
+                  onChange={(event) => {
+                    const value = event?.target?.value;
+                    if (!value) return;
+                    const [hours, minutes] = value.split(':').map(Number);
+                    if (![hours, minutes].some((part) => Number.isNaN(part))) {
+                      const updatedTime = new Date(time);
+                      updatedTime.setHours(hours);
+                      updatedTime.setMinutes(minutes);
+                      setTime(updatedTime);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    height: '100%',
+                    border: 'none',
+                    outline: 'none',
+                    backgroundColor: 'transparent',
+                    color: colors.text,
+                    fontSize: 16,
+                    paddingLeft: 16,
+                    paddingRight: 16,
+                  }}
+                />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, justifyContent: 'center' }]}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={{ color: colors.text }}>{time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</Text>
+                </TouchableOpacity>
+                {showTimePicker && (
+                  <DateTimePicker
+                    testID="timePicker"
+                    value={time}
+                    mode="time"
+                    display="default"
+                    onChange={onTimeChange}
+                  />
+                )}
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {/* Duration */}
+        {!allDay ? (
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Thời lượng (phút)</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+              value={durationMinutes}
+              onChangeText={setDurationMinutes}
+              placeholder="30"
+              placeholderTextColor={colors.textTertiary}
+              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+            />
+          </View>
+        ) : null}
 
         {/* Notes */}
         <View style={styles.inputGroup}>
@@ -346,6 +440,7 @@ export default function EditTaskScreen() {
             {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
           </Text>
         </TouchableOpacity>
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
