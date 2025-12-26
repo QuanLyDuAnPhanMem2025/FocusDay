@@ -25,6 +25,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
+import {
+  cancelTaskReminderAsync,
+  scheduleTaskReminderAsync,
+} from '../utils/taskNotifications';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -44,6 +48,11 @@ export default function HomeScreen() {
   const [isAiModalVisible, setIsAiModalVisible] = useState(false);
   const [aiInsights, setAiInsights] = useState(null);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiSchedulePreview, setAiSchedulePreview] = useState(null);
+  const [isApplyingAiSchedule, setIsApplyingAiSchedule] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [isDeletingTask, setIsDeletingTask] = useState(false);
   
   // Animated values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -184,6 +193,243 @@ export default function HomeScreen() {
     }
     return hours * 60 + minutes;
   }, []);
+
+  const clampRangeToWindow = useCallback((startMinutes, endMinutes, window) => {
+    if (typeof startMinutes !== 'number' || typeof endMinutes !== 'number') return null;
+    const start = Math.max(startMinutes, window.start);
+    const end = Math.min(endMinutes, window.end);
+    if (end <= start) return null;
+    return { start, end };
+  }, []);
+
+  const buildAiSchedulePreview = useCallback(() => {
+    const minutesToLabel = (totalMinutes) => {
+      if (typeof totalMinutes !== 'number') {
+        return '09:00';
+      }
+      const normalized = Math.max(0, totalMinutes);
+      const hours = Math.floor(normalized / 60) % 24;
+      const minutes = normalized % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    const roundUpToStep = (value, step) => {
+      if (typeof value !== 'number' || typeof step !== 'number' || step <= 0) return value;
+      return Math.ceil(value / step) * step;
+    };
+
+    const timeRangeLabel = (startMinutes = 540, duration = 60) => {
+      const safeStart = Math.max(0, startMinutes);
+      const end = safeStart + duration;
+      return `${minutesToLabel(safeStart)} - ${minutesToLabel(end)}`;
+    };
+
+    const tasksForDate = tasks.filter((task) => task.date === selectedDate);
+    const pendingForDate = tasksForDate.filter((task) => !task.completed);
+
+    const fixedTasks = pendingForDate.filter((task) => Boolean(task.time));
+    const flexibleTasks = pendingForDate.filter((task) => !task.time);
+
+    const PRIMARY_WINDOWS = [
+      { start: 8 * 60, end: 12 * 60 },
+      { start: 13 * 60 + 30, end: 18 * 60 },
+    ];
+
+    const OVERFLOW_WINDOWS = [
+      { start: 18 * 60, end: 24 * 60 },
+    ];
+
+    const WORK_WINDOWS = [...PRIMARY_WINDOWS, ...OVERFLOW_WINDOWS];
+
+    const minStartMinutes = 0;
+    const STEP_MINUTES = 5;
+
+    const busyIntervals = fixedTasks
+      .map((task) => {
+        const start = parseTimeToMinutes(task.time);
+        if (start === null) {
+          return null;
+        }
+        const duration = Number(task.durationMinutes) || 30;
+        return { start, end: Math.min(24 * 60, start + duration) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.start - b.start);
+
+    const mergeIntervals = (intervals) => {
+      if (!intervals.length) return [];
+      const merged = [{ ...intervals[0] }];
+      for (let i = 1; i < intervals.length; i++) {
+        const prev = merged[merged.length - 1];
+        const curr = intervals[i];
+        if (curr.start <= prev.end) {
+          prev.end = Math.max(prev.end, curr.end);
+        } else {
+          merged.push({ ...curr });
+        }
+      }
+      return merged;
+    };
+
+    const subtractBusyFromWindow = (window, mergedBusy) => {
+      const free = [];
+      let cursor = window.start;
+      for (const b of mergedBusy) {
+        if (b.end <= window.start) continue;
+        if (b.start >= window.end) break;
+        const bs = Math.max(b.start, window.start);
+        const be = Math.min(b.end, window.end);
+        if (bs > cursor) {
+          free.push({ start: cursor, end: bs });
+        }
+        cursor = Math.max(cursor, be);
+      }
+      if (cursor < window.end) {
+        free.push({ start: cursor, end: window.end });
+      }
+      return free;
+    };
+
+    const mergedBusy = mergeIntervals(busyIntervals);
+    const primaryFreeGaps = PRIMARY_WINDOWS.flatMap((w) => subtractBusyFromWindow(w, mergedBusy));
+    const overflowFreeGaps = OVERFLOW_WINDOWS.flatMap((w) => subtractBusyFromWindow(w, mergedBusy));
+
+    const typePriority = {
+      meeting: 3,
+      work: 2,
+      personal: 1,
+      default: 0,
+    };
+
+    const flexibleSorted = [...flexibleTasks].sort((a, b) => {
+      const pa = typePriority[a.type] ?? 0;
+      const pb = typePriority[b.type] ?? 0;
+      if (pb !== pa) return pb - pa;
+      const da = Number(a.durationMinutes) || 30;
+      const db = Number(b.durationMinutes) || 30;
+      return db - da;
+    });
+
+    const suggestions = [];
+    const gapsPrimary = primaryFreeGaps.map((g) => ({ ...g }));
+    const gapsOverflow = overflowFreeGaps.map((g) => ({ ...g }));
+
+    const placeInGaps = (gapsList, duration) => {
+      for (const gap of gapsList) {
+        if (gap.end - gap.start < duration) continue;
+        const startCandidate = roundUpToStep(Math.max(gap.start, minStartMinutes), STEP_MINUTES);
+        const endCandidate = startCandidate + duration;
+        if (endCandidate > gap.end) continue;
+        gap.start = endCandidate;
+        return { start: startCandidate, end: endCandidate };
+      }
+      return null;
+    };
+
+    for (const task of flexibleSorted) {
+      const stableTaskId = task?._id || task?.id;
+      const duration = Number(task.durationMinutes) || 30;
+      const primaryPlacement = placeInGaps(gapsPrimary, duration);
+      const overflowPlacement = primaryPlacement ? null : placeInGaps(gapsOverflow, duration);
+      const placement = primaryPlacement || overflowPlacement;
+
+      if (placement) {
+        const start = placement.start;
+        const end = placement.end;
+        suggestions.push({
+          taskId: stableTaskId,
+          title: task.title,
+          type: task.type,
+          startMinutes: start,
+          endMinutes: end,
+          durationMinutes: duration,
+          time: minutesToLabel(start),
+          range: timeRangeLabel(start, duration),
+          outsideWorkHours: Boolean(overflowPlacement),
+        });
+      } else {
+        suggestions.push({
+          taskId: stableTaskId,
+          title: task.title,
+          type: task.type,
+          startMinutes: null,
+          endMinutes: null,
+          durationMinutes: duration,
+          time: null,
+          range: 'Không đủ thời gian trống',
+        });
+      }
+    }
+
+    const fixedBlocks = fixedTasks
+      .map((task) => {
+        const stableTaskId = task?._id || task?.id;
+        const startMinutes = parseTimeToMinutes(task.time);
+        if (startMinutes === null) return null;
+        const duration = Number(task.durationMinutes) || 30;
+        const endMinutes = Math.min(24 * 60, startMinutes + duration);
+        return {
+          kind: 'fixed',
+          taskId: stableTaskId,
+          title: task.title,
+          type: task.type,
+          startMinutes,
+          endMinutes,
+          durationMinutes: duration,
+          time: minutesToLabel(startMinutes),
+          range: timeRangeLabel(startMinutes, duration),
+        };
+      })
+      .filter(Boolean);
+
+    const placedBlocks = suggestions
+      .filter((s) => typeof s.startMinutes === 'number' && typeof s.endMinutes === 'number')
+      .map((s) => ({
+        kind: 'suggested',
+        taskId: s.taskId,
+        title: s.title,
+        type: s.type,
+        startMinutes: s.startMinutes,
+        endMinutes: s.endMinutes,
+        durationMinutes: s.durationMinutes,
+        time: s.time,
+        range: s.range,
+      }));
+
+    const blocks = [...fixedBlocks, ...placedBlocks].sort((a, b) => a.startMinutes - b.startMinutes);
+
+    const suggestedTimeById = new Map(
+      suggestions
+        .filter((s) => Boolean(s.taskId))
+        .map((s) => [String(s.taskId), s.time || null])
+    );
+
+    const previewTasks = pendingForDate
+      .map((task) => {
+        const taskId = task?._id || task?.id;
+        const suggestedTime = taskId ? suggestedTimeById.get(String(taskId)) : null;
+        const previewTime = task.time || suggestedTime || null;
+        return {
+          _id: taskId,
+          title: task.title,
+          type: task.type,
+          time: previewTime,
+          durationMinutes: typeof task.durationMinutes === 'number' ? task.durationMinutes : Number(task.durationMinutes) || 30,
+          completed: false,
+        };
+      })
+      .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+
+    return {
+      selectedDate,
+      fixedCount: fixedTasks.length,
+      flexibleCount: flexibleTasks.length,
+      workWindows: WORK_WINDOWS,
+      blocks,
+      previewTasks,
+      suggestions,
+    };
+  }, [tasks, selectedDate, parseTimeToMinutes, clampRangeToWindow]);
 
   const formatMinutesToLabel = useCallback((totalMinutes) => {
     if (typeof totalMinutes !== 'number') {
@@ -502,7 +748,15 @@ export default function HomeScreen() {
 
   const getSectionTitle = () => {
     if (viewMode === 'day') {
-      return 'Công việc hôm nay';
+      const parts = String(selectedDate || '').split('-');
+      if (parts.length === 3) {
+        const day = parts[2];
+        const month = parts[1];
+        if (day && month) {
+          return `Công việc ${day}/${month}`;
+        }
+      }
+      return 'Công việc';
     } else if (viewMode === 'week') {
       return 'Công việc trong tuần';
     } else {
@@ -522,6 +776,11 @@ export default function HomeScreen() {
 
     try {
       await api.put(`/tasks/${taskId}`, { completed: updatedTask.completed });
+      if (updatedTask.completed) {
+        await cancelTaskReminderAsync(taskId);
+      } else {
+        await scheduleTaskReminderAsync(updatedTask);
+      }
     } catch (error) {
       // Revert on error
       Alert.alert('Lỗi', 'Không thể cập nhật công việc.');
@@ -532,34 +791,37 @@ export default function HomeScreen() {
   };
 
   const handleDeleteTask = async (taskId) => {
-    const task = tasks.find(t => t._id === taskId);
+    const task = tasks.find((t) => (t?._id || t?.id) === taskId);
     if (!task) return;
-
-    Alert.alert(
-      'Xóa công việc',
-      `Bạn có chắc chắn muốn xóa "${task.title}"?`,
-      [
-        {
-          text: 'Hủy',
-          style: 'cancel',
-        },
-        {
-          text: 'Xóa',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.delete(`/tasks/${taskId}`);
-              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-              setTasks(tasks.filter(t => t._id !== taskId));
-            } catch (error) {
-              console.error('Delete task error:', error);
-              Alert.alert('Lỗi', 'Không thể xóa công việc. Vui lòng thử lại.');
-            }
-          },
-        },
-      ]
-    );
+    setTaskToDelete(task);
+    setIsDeleteModalVisible(true);
   };
+
+  const closeDeleteModal = useCallback(() => {
+    if (isDeletingTask) return;
+    setIsDeleteModalVisible(false);
+    setTaskToDelete(null);
+  }, [isDeletingTask]);
+
+  const confirmDeleteTask = useCallback(async () => {
+    const taskId = taskToDelete?._id || taskToDelete?.id;
+    if (!taskId) return;
+
+    setIsDeletingTask(true);
+    try {
+      await api.delete(`/tasks/${taskId}`);
+      await cancelTaskReminderAsync(taskId);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setTasks((prev) => prev.filter((t) => (t?._id || t?.id) !== taskId));
+      setIsDeleteModalVisible(false);
+      setTaskToDelete(null);
+    } catch (error) {
+      console.error('Delete task error:', error);
+      Alert.alert('Lỗi', 'Không thể xóa công việc. Vui lòng thử lại.');
+    } finally {
+      setIsDeletingTask(false);
+    }
+  }, [taskToDelete]);
 
   const handleTaskPress = (task) => {
     const taskId = task?._id;
@@ -589,8 +851,9 @@ export default function HomeScreen() {
     setIsGeneratingAi(true);
     try {
       await new Promise((resolve) => setTimeout(resolve, 450));
-      const insights = buildAiInsights();
-      setAiInsights(insights);
+      const schedulePreview = buildAiSchedulePreview();
+      setAiSchedulePreview(schedulePreview);
+      setAiInsights(null);
       setIsAiModalVisible(true);
     } catch (error) {
       console.error('AI optimization error', error);
@@ -598,11 +861,49 @@ export default function HomeScreen() {
     } finally {
       setIsGeneratingAi(false);
     }
-  }, [user, tasks.length, buildAiInsights]);
+  }, [user, tasks.length, buildAiSchedulePreview]);
 
   const closeAiModal = () => {
     setIsAiModalVisible(false);
+    setAiSchedulePreview(null);
   };
+
+  const applyAiSchedule = useCallback(async () => {
+    if (!aiSchedulePreview?.suggestions?.length) {
+      closeAiModal();
+      return;
+    }
+
+    const applicable = aiSchedulePreview.suggestions.filter((s) => Boolean(s.taskId) && Boolean(s.time));
+    if (!applicable.length) {
+      Alert.alert('Không thể áp dụng', 'Không có công việc nào được xếp giờ hợp lệ để áp dụng.');
+      return;
+    }
+
+    setIsApplyingAiSchedule(true);
+    try {
+      const results = await Promise.all(
+        applicable.map((s) =>
+          api.put(`/tasks/${s.taskId}`, {
+            time: s.time,
+          })
+        )
+      );
+
+      const normalizedUpdatedTasks = results.map((r) => normalizeTaskFromApi(r.data));
+      await Promise.all(normalizedUpdatedTasks.map((t) => scheduleTaskReminderAsync(t)));
+
+      const getStableId = (t) => t?._id || t?.id;
+      const updatedMap = new Map(normalizedUpdatedTasks.map((t) => [String(getStableId(t)), t]));
+      setTasks((prev) => prev.map((t) => updatedMap.get(String(getStableId(t))) || t));
+      closeAiModal();
+    } catch (error) {
+      console.error('Apply AI schedule error:', error.response?.data || error.message);
+      Alert.alert('Lỗi', 'Không thể áp dụng lịch AI. Vui lòng thử lại.');
+    } finally {
+      setIsApplyingAiSchedule(false);
+    }
+  }, [aiSchedulePreview, closeAiModal, normalizeTaskFromApi]);
 
   const handleViewModeChange = (mode) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -743,7 +1044,7 @@ export default function HomeScreen() {
           return (
             <TouchableOpacity
               style={[styles.deleteAction, { backgroundColor: '#ef4444' }]}
-              onPress={() => handleDeleteTask(task._id)}
+              onPress={() => handleDeleteTask(task._id || task.id)}
               activeOpacity={0.7}
             >
               <Animated.View style={{ transform: [{ scale }] }}>
@@ -798,7 +1099,7 @@ export default function HomeScreen() {
                   </Text>
                   {task.durationMinutes && (
                     <Text style={[styles.taskDuration, { color: colors.textSecondary, marginLeft: 5 }]}>
-                      {task.allDay ? 'Cả ngày' : `${task.durationMinutes} phút`}
+                      {`${task.durationMinutes} phút`}
                     </Text>
                   )}
                 </View>
@@ -1185,244 +1486,133 @@ export default function HomeScreen() {
           <View style={[styles.aiModalContainer, { backgroundColor: colors.surface }]}>
             <View style={styles.aiModalHeader}>
               <Text style={[styles.aiModalTitle, { color: colors.text }]}>
-                Gợi ý AI cho {formatDate(selectedDate)}
+                Tối ưu hoá lịch {formatDate(selectedDate)}
               </Text>
               <TouchableOpacity style={styles.aiModalClose} onPress={closeAiModal}>
                 <Ionicons name="close" size={20} color={colors.text} />
               </TouchableOpacity>
             </View>
-            {aiInsights ? (
+            {aiSchedulePreview ? (
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={[styles.aiModalSummary, { color: colors.textSecondary }]}>
-                  {aiInsights.summary}
-                </Text>
-                <View style={styles.aiConfidenceRow}>
-                  <Text style={[styles.aiConfidenceLabel, { color: colors.textSecondary }]}>
-                    Độ tin cậy khoảng {aiInsights.confidence}%
-                  </Text>
-                  <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border }]}>
-                    <View
-                      style={[
-                        styles.aiConfidenceValue,
-                        { backgroundColor: colors.primary, width: `${aiInsights.confidence}%` },
-                      ]}
-                    />
-                  </View>
-                </View>
-                <View style={styles.aiStatRow}>
-                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
-                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
-                      {aiInsights.stats.total}
-                    </Text>
-                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Tổng</Text>
-                  </View>
-                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
-                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
-                      {aiInsights.stats.pending}
-                    </Text>
-                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Chưa xong</Text>
-                  </View>
-                  <View style={[styles.aiStatItem, { borderColor: colors.border }]}>
-                    <Text style={[styles.aiStatValue, { color: colors.text }]}>
-                      {aiInsights.stats.completed}
-                    </Text>
-                    <Text style={[styles.aiStatLabel, { color: colors.textSecondary }]}>Đã hoàn tất</Text>
-                  </View>
-                </View>
                 <View style={styles.aiModalSection}>
-                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Block nên ưu tiên</Text>
-                  {aiInsights.focusBlocks.length ? (
-                    aiInsights.focusBlocks.map((item) => (
-                      <View key={item.id} style={[styles.aiFocusItem, { borderColor: colors.border }]}>
-                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
-                        <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
-                          {item.range} · {item.typeLabel}
-                        </Text>
+                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Lịch đề xuất</Text>
+                  <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
+                    {aiSchedulePreview.flexibleCount} công việc linh hoạt · {aiSchedulePreview.fixedCount} công việc cố định
+                  </Text>
+
+                  {(aiSchedulePreview.previewTasks || []).length ? (
+                    (aiSchedulePreview.previewTasks || []).map((task) => (
+                      <View
+                        key={task._id || task.title}
+                        style={[
+                          styles.taskItem,
+                          { backgroundColor: colors.surface },
+                        ]}
+                      >
+                        <View style={[styles.taskIcon, { backgroundColor: getTaskColor(task.type) }]}
+                        >
+                          <Ionicons
+                            name={getTaskIcon(task.type)}
+                            size={20}
+                            color="#ffffff"
+                          />
+                        </View>
+                        <View style={styles.taskContent}>
+                          <Text
+                            style={[
+                              styles.taskTitle,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {task.title}
+                          </Text>
+                          <View style={styles.taskMeta}>
+                            <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
+                              <Ionicons name="time-outline" size={14} color={colors.textSecondary} /> {task.time || 'Linh hoạt'}
+                            </Text>
+                            {task.durationMinutes && (
+                              <Text style={[styles.taskDuration, { color: colors.textSecondary, marginLeft: 5 }]}>
+                                {`${task.durationMinutes} phút`}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                        <View style={[styles.aiPreviewCircle, { borderColor: colors.border }]} />
                       </View>
                     ))
                   ) : (
-                    <Text style={{ color: colors.textSecondary }}>
-                      Không có nhiệm vụ nào cần ưu tiên trong ngày này.
-                    </Text>
+                    <Text style={{ color: colors.textSecondary }}>Không có công việc để hiển thị.</Text>
                   )}
-                </View>
-                {aiInsights.quickWins.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Quick wins</Text>
-                    {aiInsights.quickWins.map((item) => (
-                      <View
-                        key={item.id}
-                        style={[styles.aiQuickWinItem, { borderColor: colors.border }]}
-                      >
-                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                          {item.reason}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                {aiInsights.upcoming.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>Sắp đến hạn</Text>
-                    {aiInsights.upcoming.map((item) => (
-                      <View key={item.id} style={styles.aiUpcomingItem}>
-                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{item.title}</Text>
-                        <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
-                          {item.dateLabel}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                {/* Năng suất tuần */}
-                {aiInsights.weekProductivity !== undefined && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📊 Năng suất tuần</Text>
-                    <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border, marginTop: 8 }]}>
-                      <View
-                        style={[
-                          styles.aiConfidenceValue,
-                          { backgroundColor: colors.primary, width: `${aiInsights.weekProductivity}%` },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
-                      Bạn đã hoàn thành {aiInsights.weekProductivity}% công việc trong tuần này
-                    </Text>
-                  </View>
-                )}
 
-                {/* Phân tích loại công việc */}
-                {aiInsights.typeInsights && aiInsights.typeInsights.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📋 Phân tích loại công việc</Text>
-                    {aiInsights.typeInsights.map((insight, index) => (
-                      <View key={index} style={[styles.aiFocusItem, { borderColor: colors.border, marginBottom: 8 }]}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{insight.type}</Text>
-                          <Text style={[styles.aiFocusTime, { color: colors.textSecondary }]}>
-                            {insight.completed}/{insight.total} ({insight.rate}%)
-                          </Text>
-                        </View>
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>{insight.tip}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Gợi ý ưu tiên */}
-                {aiInsights.prioritySuggestions && aiInsights.prioritySuggestions.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⭐ Ưu tiên thông minh</Text>
-                    {aiInsights.prioritySuggestions.map((suggestion, index) => (
-                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
-                        <Text style={[styles.aiFocusTitle, { color: colors.text }]}>{suggestion.title}</Text>
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
-                          {suggestion.reason}
-                        </Text>
-                        {suggestion.tasks && suggestion.tasks.length > 0 && (
-                          <View style={{ marginTop: 8 }}>
-                            {suggestion.tasks.map((task, i) => (
-                              <Text key={i} style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                                • {task}
-                              </Text>
-                            ))}
-                          </View>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Gợi ý thời gian */}
-                {aiInsights.timeSuggestions && aiInsights.timeSuggestions.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⏰ Gợi ý sắp xếp thời gian</Text>
-                    {aiInsights.timeSuggestions.map((suggestion, index) => (
-                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                          {suggestion.suggestion}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Thống kê thời gian */}
-                {aiInsights.timeStats && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>📈 Thống kê thời gian</Text>
-                    <View style={[styles.aiFocusItem, { borderColor: colors.border }]}>
-                      <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                        • Công việc có giờ cụ thể: {aiInsights.timeStats.totalTasksWithTime}
-                      </Text>
-                      {aiInsights.timeStats.earliestTask && (
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                          • Công việc sớm nhất: {aiInsights.timeStats.earliestTask}
-                        </Text>
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                    <TouchableOpacity
+                      style={[styles.aiModalAction, { backgroundColor: colors.border, flex: 1 }]}
+                      onPress={closeAiModal}
+                      disabled={isApplyingAiSchedule}
+                    >
+                      <Text style={[styles.aiModalActionText, { color: colors.text }]}>Hủy</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.aiModalAction, { backgroundColor: colors.primary, flex: 1 }]}
+                      onPress={applyAiSchedule}
+                      disabled={isApplyingAiSchedule}
+                    >
+                      {isApplyingAiSchedule ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.aiModalActionText}>Áp dụng</Text>
                       )}
-                      {aiInsights.timeStats.latestTask && (
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                          • Công việc muộn nhất: {aiInsights.timeStats.latestTask}
-                        </Text>
-                      )}
-                      <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>
-                        • Trung bình {aiInsights.timeStats.averageTasksPerDay} công việc/ngày
-                      </Text>
-                    </View>
+                    </TouchableOpacity>
                   </View>
-                )}
-
-                {/* Gợi ý cải thiện */}
-                {aiInsights.improvementTips && aiInsights.improvementTips.length > 0 && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>💡 Gợi ý cải thiện</Text>
-                    {aiInsights.improvementTips.map((tip, index) => (
-                      <View key={index} style={[styles.aiQuickWinItem, { borderColor: colors.border }]}>
-                        <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary }]}>{tip}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Tỷ lệ hoàn thành tổng thể */}
-                {aiInsights.overallCompletionRate !== undefined && (
-                  <View style={styles.aiModalSection}>
-                    <Text style={[styles.aiSectionTitle, { color: colors.text }]}>🎯 Tỷ lệ hoàn thành tổng thể</Text>
-                    <View style={[styles.aiConfidenceBar, { backgroundColor: colors.border, marginTop: 8 }]}>
-                      <View
-                        style={[
-                          styles.aiConfidenceValue,
-                          { 
-                            backgroundColor: aiInsights.overallCompletionRate >= 70 ? '#10b981' : aiInsights.overallCompletionRate >= 50 ? '#f59e0b' : '#ef4444',
-                            width: `${aiInsights.overallCompletionRate}%` 
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.aiQuickWinReason, { color: colors.textSecondary, marginTop: 4 }]}>
-                      {aiInsights.overallCompletionRate}% công việc đã hoàn thành
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.aiModalSection}>
-                  <Text style={[styles.aiSectionTitle, { color: colors.text }]}>⚡ Mẹo năng lượng</Text>
-                  <Text style={{ color: colors.textSecondary }}>{aiInsights.energyTip}</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.aiModalAction, { backgroundColor: colors.primary }]}
-                  onPress={closeAiModal}
-                >
-                  <Text style={styles.aiModalActionText}>Đóng gợi ý</Text>
-                </TouchableOpacity>
               </ScrollView>
             ) : (
               <View style={styles.aiModalLoading}>
                 <ActivityIndicator size="large" color={colors.primary} />
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isDeleteModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeDeleteModal}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <TouchableOpacity
+            style={styles.deleteModalBackdrop}
+            activeOpacity={1}
+            onPress={closeDeleteModal}
+          />
+          <View style={[styles.deleteModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.deleteModalTitle, { color: colors.text }]}>Xóa công việc</Text>
+            <Text style={[styles.deleteModalMessage, { color: colors.textSecondary }]}>
+              Bạn có chắc chắn muốn xóa "{taskToDelete?.title || ''}"?
+            </Text>
+
+            <View style={styles.deleteModalActionsRow}>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, { backgroundColor: colors.border }]}
+                onPress={closeDeleteModal}
+                disabled={isDeletingTask}
+              >
+                <Text style={[styles.deleteModalButtonText, { color: colors.text }]}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.deleteModalButton, { backgroundColor: '#ef4444' }]}
+                onPress={confirmDeleteTask}
+                disabled={isDeletingTask}
+              >
+                {isDeletingTask ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.deleteModalButtonText, { color: '#fff' }]}>Xóa</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1873,7 +2063,7 @@ const styles = StyleSheet.create({
   aiCard: {
     marginHorizontal: 16,
     marginTop: 16,
-    marginBottom: 24,
+    marginBottom: 12,
     backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 20,
@@ -2035,5 +2225,128 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  aiTimelineSection: {
+    marginTop: 14,
+    marginBottom: 12,
+  },
+  aiTimelineTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  aiTimelineWindow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+  },
+  aiTimelineWindowTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  aiBlockItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiBlockAccent: {
+    width: 10,
+    height: '100%',
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  aiBlockContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  aiBlockTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  aiBlockMeta: {
+    fontSize: 12,
+  },
+  aiTimelineHint: {
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 10,
+    lineHeight: 18,
+  },
+  aiTimelineEmpty: {
+    fontSize: 12,
+    paddingVertical: 8,
+  },
+  aiPreviewCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+  },
+  deleteModalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  deleteModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 18,
+    alignItems: 'center',
+  },
+  deleteModalIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deleteModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  deleteModalMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  deleteModalActionsRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  deleteModalButton: {
+    flex: 1,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteModalButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

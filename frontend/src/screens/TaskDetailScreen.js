@@ -145,6 +145,7 @@ export default function TaskDetailScreen() {
       
       if (response.status === 200 || response.status === 204) {
         console.log('[TaskDetailScreen] Task deleted successfully!');
+        await cancelTaskReminderAsync(taskId);
         
         // Đợi một chút để đảm bảo state được update
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -227,38 +228,7 @@ export default function TaskDetailScreen() {
 
     console.log('[TaskDetailScreen] Attempting to delete task:', taskId);
 
-    // Trên web, dùng custom dialog; trên mobile có thể dùng Alert hoặc dialog
-    if (Platform.OS === 'web') {
-      // Web: dùng custom dialog
-      setShowDeleteConfirm(true);
-    } else {
-      // Mobile: dùng Alert
-      Alert.alert(
-        'Xóa công việc',
-        'Bạn có chắc chắn muốn xóa công việc này?',
-        [
-          {
-            text: 'Hủy',
-            style: 'cancel',
-            onPress: () => {
-              console.log('[TaskDetailScreen] Delete cancelled by user');
-            },
-          },
-          {
-            text: 'Xóa',
-            style: 'destructive',
-            onPress: () => {
-              console.log('[TaskDetailScreen] Delete button pressed in Alert!');
-              console.log('[TaskDetailScreen] Calling performDelete with taskId:', taskId);
-              performDelete(taskId).catch((err) => {
-                console.error('[TaskDetailScreen] Unhandled error in performDelete:', err);
-              });
-            },
-          },
-        ],
-        { cancelable: true }
-      );
-    }
+    setShowDeleteConfirm(true);
   };
 
   const handleConfirmDelete = () => {
@@ -329,7 +299,7 @@ export default function TaskDetailScreen() {
             <View style={styles.infoContent}>
               <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Thời lượng</Text>
               <Text style={[styles.infoValue, { color: colors.text }]}>
-                {currentTask.allDay ? 'Cả ngày' : `${currentTask.durationMinutes || 30} phút`}
+                {`${currentTask.durationMinutes || 30} phút`}
               </Text>
             </View>
           </View>

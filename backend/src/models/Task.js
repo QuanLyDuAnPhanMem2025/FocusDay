@@ -10,12 +10,9 @@ const taskSchema = new mongoose.Schema({
     type: Date, // Changed from String to Date for better date management
     required: true,
   },
-  allDay: {
-    type: Boolean,
-    default: false,
-  },
   time: {
     type: String, // Storing as HH:mm, optional for flexible tasks
+    default: null,
   },
   durationMinutes: {
     type: Number,

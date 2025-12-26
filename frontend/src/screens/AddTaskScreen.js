@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { scheduleTaskReminderAsync } from '../utils/taskNotifications';
 
 export default function AddTaskScreen() {
   const navigation = useNavigation();
@@ -45,7 +46,6 @@ export default function AddTaskScreen() {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(getInitialDate);
   const [time, setTime] = useState(new Date());
-  const [allDay, setAllDay] = useState(false);
   const [durationMinutes, setDurationMinutes] = useState('30');
   const [hasFixedTime, setHasFixedTime] = useState(true);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -92,21 +92,20 @@ export default function AddTaskScreen() {
     }
 
     const parsedDuration = Number(durationMinutes);
-    if (!allDay && durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
+    if (durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
       Alert.alert('Lỗi', 'Thời lượng phải là số phút hợp lệ.');
       return;
     }
 
-    const timeValue = allDay
-      ? '00:00'
-      : hasFixedTime ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null;
+    const timeValue = hasFixedTime
+      ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      : null;
 
     const newTask = {
       title: title.trim(),
       dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
-      allDay,
       time: timeValue, // HH:mm or null for flexible tasks
-      durationMinutes: allDay ? (24 * 60) : (durationMinutes ? parsedDuration : undefined),
+      durationMinutes: durationMinutes ? parsedDuration : undefined,
       type: taskType,
       notes: notes.trim(),
       userId: user._id,
@@ -114,8 +113,10 @@ export default function AddTaskScreen() {
     };
 
     try {
+      console.log('[AddTaskScreen] Payload to send:', newTask);
       const response = await api.post('/tasks', newTask);
       console.log('Task created successfully:', response.data);
+      await scheduleTaskReminderAsync(response.data);
       navigation.goBack();
     } catch (error) {
       console.error('Add task error:', error.response?.data || error.message);
@@ -202,51 +203,51 @@ export default function AddTaskScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Add New Task</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Thêm công việc</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView style={styles.form} showsVerticalScrollIndicator={false}>
         {/* Task Title */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Task Title</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Tiêu đề công việc</Text>
           <TextInput
             style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
             value={title}
             onChangeText={setTitle}
-            placeholder="Enter task title"
+            placeholder="Nhập tiêu đề công việc"
             placeholderTextColor={colors.textTertiary}
           />
         </View>
 
         {/* Task Type */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Task Type</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Loại công việc</Text>
           <View style={styles.taskTypeContainer}>
             <TouchableOpacity
               style={[styles.taskTypeButton, getTaskTypeStyle('work')]}
               onPress={() => setTaskType('work')}
             >
-              <Text style={[styles.taskTypeText, getTaskTypeText('work')]}>Work</Text>
+              <Text style={[styles.taskTypeText, getTaskTypeText('work')]}>Công việc</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.taskTypeButton, getTaskTypeStyle('personal')]}
               onPress={() => setTaskType('personal')}
             >
-              <Text style={[styles.taskTypeText, getTaskTypeText('personal')]}>Personal</Text>
+              <Text style={[styles.taskTypeText, getTaskTypeText('personal')]}>Cá nhân</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.taskTypeButton, getTaskTypeStyle('meeting')]}
               onPress={() => setTaskType('meeting')}
             >
-              <Text style={[styles.taskTypeText, getTaskTypeText('meeting')]}>Meeting</Text>
+              <Text style={[styles.taskTypeText, getTaskTypeText('meeting')]}>Cuộc họp</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Date Picker */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Date</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Ngày</Text>
           {isWeb ? (
             <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <input
@@ -296,36 +297,18 @@ export default function AddTaskScreen() {
           )}
         </View>
 
-        {/* All day */}
+        {/* Fixed Time Toggle */}
         <View style={styles.inputGroup}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Cả ngày</Text>
-            <Switch
-              value={allDay}
-              onValueChange={(value) => {
-                setAllDay(value);
-                if (value) {
-                  setHasFixedTime(false);
-                }
-              }}
-            />
+            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
+            <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
           </View>
         </View>
 
-        {/* Fixed Time Toggle */}
-        {!allDay && (
-          <View style={styles.inputGroup}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
-              <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
-            </View>
-          </View>
-        )}
-
         {/* Time Picker */}
-        {!allDay && hasFixedTime ? (
+        {hasFixedTime ? (
           <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Time</Text>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Giờ</Text>
             {isWeb ? (
               <View style={[styles.input, styles.webInputWrapper, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <input
@@ -368,28 +351,26 @@ export default function AddTaskScreen() {
         ) : null}
 
         {/* Duration */}
-        {!allDay ? (
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Duration (minutes)</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
-              value={durationMinutes}
-              onChangeText={setDurationMinutes}
-              placeholder="30"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-            />
-          </View>
-        ) : null}
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Thời lượng (phút)</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+            value={durationMinutes}
+            onChangeText={setDurationMinutes}
+            placeholder="30"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+          />
+        </View>
 
         {/* Notes */}
         <View style={styles.inputGroup}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Notes</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Ghi chú</Text>
           <TextInput
             style={[styles.input, styles.notesInput, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
             value={notes}
             onChangeText={setNotes}
-            placeholder="Add some notes..."
+            placeholder="Thêm ghi chú..."
             placeholderTextColor={colors.textTertiary}
             multiline
           />
@@ -397,7 +378,7 @@ export default function AddTaskScreen() {
 
         {/* Add Task Button */}
         <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.primary }]} onPress={handleAddTask}>
-          <Text style={styles.addButtonText}>Add Task</Text>
+          <Text style={styles.addButtonText}>Thêm công việc</Text>
         </TouchableOpacity>
         <View style={{ height: 40 }} />
       </ScrollView>

@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { scheduleTaskReminderAsync } from '../utils/taskNotifications';
 
 export default function EditTaskScreen() {
   const navigation = useNavigation();
@@ -58,12 +59,12 @@ export default function EditTaskScreen() {
     }
     return new Date();
   });
-  const [allDay, setAllDay] = useState(Boolean(task?.allDay));
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [taskType, setTaskType] = useState(task?.type || 'work');
   const [notes, setNotes] = useState(task?.notes || '');
   const [hasFixedTime, setHasFixedTime] = useState(Boolean(task?.time));
+
   const [durationMinutes, setDurationMinutes] = useState(
     task?.durationMinutes !== undefined && task?.durationMinutes !== null
       ? String(task.durationMinutes)
@@ -77,7 +78,6 @@ export default function EditTaskScreen() {
       setTitle(task.title || '');
       setTaskType(task.type || 'work');
       setNotes(task.notes || '');
-      setAllDay(Boolean(task.allDay));
       setHasFixedTime(Boolean(task.time));
       setDurationMinutes(
         task?.durationMinutes !== undefined && task?.durationMinutes !== null
@@ -143,22 +143,21 @@ export default function EditTaskScreen() {
     };
 
     const parsedDuration = Number(durationMinutes);
-    if (!allDay && durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
+    if (durationMinutes && (Number.isNaN(parsedDuration) || parsedDuration <= 0)) {
       Alert.alert('Lỗi', 'Thời lượng phải là số phút hợp lệ.');
       setIsSaving(false);
       return;
     }
 
-    const timeValue = allDay
-      ? '00:00'
-      : hasFixedTime ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : null;
+    const timeValue = hasFixedTime
+      ? time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+      : null;
 
     const updatedTask = {
       title: title.trim(),
       dueDate: formatDateToString(date), // YYYY-MM-DD từ local time
-      allDay,
       time: timeValue, // HH:mm or null for flexible tasks
-      durationMinutes: allDay ? (24 * 60) : (durationMinutes ? parsedDuration : undefined),
+      durationMinutes: durationMinutes ? parsedDuration : undefined,
       type: taskType,
       notes: notes.trim(),
     };
@@ -166,6 +165,7 @@ export default function EditTaskScreen() {
     try {
       const response = await api.put(`/tasks/${task._id}`, updatedTask);
       console.log('Task updated successfully:', response.data);
+      await scheduleTaskReminderAsync(response.data);
       if (onTaskUpdated) {
         onTaskUpdated(response.data);
       }
@@ -321,34 +321,16 @@ export default function EditTaskScreen() {
           )}
         </View>
 
-        {/* All day */}
+        {/* Fixed Time Toggle */}
         <View style={styles.inputGroup}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Cả ngày</Text>
-            <Switch
-              value={allDay}
-              onValueChange={(value) => {
-                setAllDay(value);
-                if (value) {
-                  setHasFixedTime(false);
-                }
-              }}
-            />
+            <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
+            <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
           </View>
         </View>
 
-        {/* Fixed Time Toggle */}
-        {!allDay && (
-          <View style={styles.inputGroup}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={[styles.label, { color: colors.textSecondary, marginBottom: 0 }]}>Giờ cố định</Text>
-              <Switch value={hasFixedTime} onValueChange={setHasFixedTime} />
-            </View>
-          </View>
-        )}
-
         {/* Time Picker */}
-        {!allDay && hasFixedTime ? (
+        {hasFixedTime ? (
           <View style={styles.inputGroup}>
             <Text style={[styles.label, { color: colors.textSecondary }]}>Giờ</Text>
             {isWeb ? (
@@ -403,19 +385,17 @@ export default function EditTaskScreen() {
         ) : null}
 
         {/* Duration */}
-        {!allDay ? (
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Thời lượng (phút)</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
-              value={durationMinutes}
-              onChangeText={setDurationMinutes}
-              placeholder="30"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
-            />
-          </View>
-        ) : null}
+        <View style={styles.inputGroup}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Thời lượng (phút)</Text>
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
+            value={durationMinutes}
+            onChangeText={setDurationMinutes}
+            placeholder="30"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+          />
+        </View>
 
         {/* Notes */}
         <View style={styles.inputGroup}>

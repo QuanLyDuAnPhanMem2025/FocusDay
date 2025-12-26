@@ -74,7 +74,6 @@ exports.createTask = async (req, res) => {
     dueDate,
     date,
     time,
-    allDay,
     type,
     notes,
     userId,
@@ -115,11 +114,11 @@ exports.createTask = async (req, res) => {
     }
 
 
-    const allDayValue = coerceBoolean(allDay) === true;
-    const normalizedTime = allDayValue ? '00:00' : time;
-    const normalizedDurationMinutes = allDayValue ? (24 * 60) : coerceNumber(durationMinutes);
+    const normalizedDurationMinutes = coerceNumber(durationMinutes);
 
-    if (!allDayValue && normalizedTime) {
+    const normalizedTime = typeof time === 'string' ? time.trim() : time;
+
+    if (normalizedTime) {
       const startMinutes = parseTimeToMinutes(normalizedTime);
       if (startMinutes === undefined) {
         return res.status(400).json({ msg: 'Invalid time format (expected HH:mm)' });
@@ -134,8 +133,7 @@ exports.createTask = async (req, res) => {
     const newTask = new Task({
       title: title.trim(),
       dueDate: parsedDueDate,
-      time: normalizedTime || undefined, // Only assign time if it exists
-      allDay: allDayValue,
+      time: normalizedTime ? normalizedTime : null,
       durationMinutes: normalizedDurationMinutes,
       priority: coerceNumber(priority),
       effort,
@@ -169,10 +167,6 @@ exports.updateTask = async (req, res) => {
     const { userId, ...updateData } = req.body;
     const { dueDate, date } = req.body; // Keep dueDate and date separate
 
-    if (Object.prototype.hasOwnProperty.call(updateData, 'allDay')) {
-      updateData.allDay = coerceBoolean(updateData.allDay);
-    }
-
     if (Object.prototype.hasOwnProperty.call(updateData, 'durationMinutes')) {
       updateData.durationMinutes = coerceNumber(updateData.durationMinutes);
     }
@@ -180,12 +174,15 @@ exports.updateTask = async (req, res) => {
       updateData.priority = coerceNumber(updateData.priority);
     }
 
-    const hasAllDayField = Object.prototype.hasOwnProperty.call(updateData, 'allDay');
-    const nextAllDay = hasAllDayField ? updateData.allDay === true : task.allDay === true;
-    if (nextAllDay) {
-      updateData.time = '00:00';
-      updateData.durationMinutes = 24 * 60;
-    } else if (Object.prototype.hasOwnProperty.call(updateData, 'time') && updateData.time) {
+    if (Object.prototype.hasOwnProperty.call(updateData, 'time')) {
+      if (updateData.time === null || updateData.time === undefined || (typeof updateData.time === 'string' && updateData.time.trim() === '')) {
+        updateData.time = null;
+      } else if (typeof updateData.time === 'string') {
+        updateData.time = updateData.time.trim();
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updateData, 'time') && updateData.time) {
       const startMinutes = parseTimeToMinutes(updateData.time);
       if (startMinutes === undefined) {
         return res.status(400).json({ msg: 'Invalid time format (expected HH:mm)' });
